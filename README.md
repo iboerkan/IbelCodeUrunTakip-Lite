@@ -56,21 +56,11 @@ Launch:
 
 Bash
 dotnet run
+
 🛡 Disclaimer & Security
 Portfolio Version: Advanced scraping algorithms and commercial-grade Shopify logic are simplified for demonstration purposes.
 
 License: This project is licensed under the GPL-3.0 License.
-
-
-Contact & Professional Services
-Are you looking for a tailored solution to scale your e-commerce business? I specialize in building custom integrations and automation tools that drive growth.
-
-Custom Shopify Apps: Private or Public app development using .NET Core.
-
-Data Aggregation: Advanced Google search monitoring and market analysis tools.
-
-ERP & Integration: Connecting Shopify with your local ERP, inventory, or accounting systems.
-
 Let's build something great together:
 
 Company: ibelcode
