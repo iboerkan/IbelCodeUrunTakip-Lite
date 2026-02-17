@@ -72,4 +72,6 @@ LinkedIn: https://www.linkedin.com/in/ibrahim-erkann/
 Email: ibrahim@erkanyazilim.com
 
 
+![Dashboard](https://github.com/user-attachments/assets/41a6c8f8-bcf8-4b5c-80fa-8f4fe9d4fc7d)
 
+![Shopify](https://github.com/user-attachments/assets/c5be124f-42f0-4e4d-a59b-3ae43387d782)
