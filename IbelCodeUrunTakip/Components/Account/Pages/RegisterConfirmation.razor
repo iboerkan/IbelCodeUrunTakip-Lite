@@ -1,0 +1,49 @@
+﻿@page "/Account/RegisterConfirmation"
+@layout AuthLayout
+@attribute [AllowAnonymous]
+
+<div class="card shadow-lg p-5 text-center" style="width: 500px; border-radius: 20px; border: none;">
+    @* Başarı İkonu *@
+    <div class="mb-4">
+        <i class="bi bi-envelope-check-fill text-primary" style="font-size: 5rem;"></i>
+    </div>
+
+    <h3 class="fw-bold text-dark mb-3">Kayıt Başarılı!</h3>
+
+    <p class="text-muted mb-4" style="font-size: 1.1rem;">
+        Sisteme giriş yapabilmeniz için e-posta adresinizi doğrulamanız gerekmektedir.
+    </p>
+
+    <div class="alert alert-info border-0 shadow-sm mb-4">
+        <strong>@EmailAddress</strong> adresine bir onay bağlantısı gönderdik.
+        Lütfen gelen kutunuzu (ve gereksiz e-posta klasörünü) kontrol edin.
+    </div>
+
+    <div class="d-grid gap-2">
+        <DxButton Text="Giriş Sayfasına Dön"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  Click="@(() => NavigationManager.NavigateTo("/Account/Login"))"
+                  CssClass="py-2" />
+
+        <p class="mt-4 small text-muted">
+            E-posta gelmedi mi? <a href="javascript:void(0);" class="text-decoration-none fw-bold">Tekrar Gönder</a>
+        </p>
+    </div>
+</div>
+
+@code {
+    [Inject] public NavigationManager NavigationManager { get; set; } = default!;
+
+    // Opsiyonel: Eğer Register sayfasından e-posta bilgisini query string ile geçerseniz burada gösterebiliriz
+    [SupplyParameterFromQuery]
+    public string? EmailAddress { get; set; }
+
+    protected override void OnInitialized()
+    {
+        // Eğer e-posta boş gelmişse varsayılan bir metin yazalım
+        if (string.IsNullOrEmpty(EmailAddress))
+        {
+            EmailAddress = "e-posta adresinize";
+        }
+    }
+}

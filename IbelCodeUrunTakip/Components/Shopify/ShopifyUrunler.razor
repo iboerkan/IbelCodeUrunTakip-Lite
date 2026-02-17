@@ -1,0 +1,700 @@
+﻿@page "/shopify-urunler"
+@attribute [Authorize(Roles = "Admin, Shopify")]
+@rendermode InteractiveServer
+@using IbelCode.Core.Interfaces
+@using IbelCode.Data
+@using IbelCode.Service
+@using IbelCodeUrunTakip.Services
+@inject ShopifyService ShopifyService
+@inject IJSRuntime JS
+@using ClosedXML.Excel
+@inject ILogService LogServiceInstance
+@inject ILogService _logService
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold">Shopify Ürün Listesi</h3>
+        <DxButton Text="Yenile" Click="LoadProducts" RenderStyle="ButtonRenderStyle.Primary" />
+        <DxButton Text="Excel'e Aktar"
+                  Click="ExportToExcel"
+                  RenderStyle="ButtonRenderStyle.Success"
+                  IconCssClass="fas fa-file-excel" />
+    </div>
+
+    <div class="card mt-4 shadow-sm">
+        <div class="card-header bg-light fw-bold">Toplu Fiyat Güncelleme Paneli</div>
+        <div class="card-body">
+            <div class="mb-3">
+                <label class="form-label small fw-bold">Fiyat Güncelleme Dosyasını Seçin (Excel)</label>
+                <InputFile OnChange="HandleExcelUpload" class="form-control" disabled="@isProcessing" />
+            </div>
+
+            @if (isProcessing)
+            {
+                <div class="alert alert-info border-0 shadow-sm">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    <strong>İşlem devam ediyor:</strong> @currentStatus
+                </div>
+                <div class="alert alert-info d-flex align-items-center justify-content-between shadow-sm">
+                    <div>
+                        <div class="spinner-border spinner-border-sm me-2"></div>
+                        <strong>@currentStatus</strong>
+                    </div>
+
+                    @* İPTAL BUTONU *@
+                    <DxButton Text="İşlemi Durdur"
+                              Click="CancelProcessing"
+                              RenderStyle="ButtonRenderStyle.Danger"
+                              IconCssClass="fas fa-stop-circle"
+                              SizeMode="SizeMode.Small" />
+                </div>
+            }
+
+            @if (AllLogs.Any())
+            {
+                <div class="mt-4">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h6 class="fw-bold mb-0">İşlem Günlüğü</h6>
+
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn @(SelectedFilter == null ? "btn-primary" : "btn-outline-primary")"
+                                    @onclick="() => SelectedFilter = null">
+                                Tümü (@AllLogs.Count)
+                            </button>
+
+                            <button class="btn @(SelectedFilter == LogType.Success ? "btn-success" : "btn-outline-success")"
+                                    @onclick="() => SelectedFilter = LogType.Success">
+                                Başarılı (@AllLogs.Count(x => x.Type == LogType.Success))
+                            </button>
+
+                            <button class="btn @(SelectedFilter == LogType.Error ? "btn-danger" : "btn-outline-danger")"
+                                    @onclick="() => SelectedFilter = LogType.Error">
+                                Hatalar (@AllLogs.Count(x => x.Type == LogType.Error))
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="border rounded p-2 bg-dark text-light" style="max-height: 400px; overflow-y: auto;">
+                        @if (!FilteredLogs.Any())
+                        {
+                            <div class="text-muted small p-2">Bu filtreye uygun kayıt bulunamadı.</div>
+                        }
+                        @foreach (var log in FilteredLogs.OrderByDescending(x => x.Time))
+                        {
+                            <div class="mb-1 p-1 border-bottom border-secondary" style="font-family: monospace; font-size: 0.85rem;">
+                                <span class="text-muted">[@log.Time:HH:mm:ss]</span>
+                                <span class="@(log.Type == LogType.Error ? "text-danger" : log.Type == LogType.Success ? "text-success" : "text-info")">
+                                    @(log.Type == LogType.Error ? "[HATA]" : log.Type == LogType.Success ? "[OK]" : "[BİLGİ]")
+                                </span>
+                                @log.Message
+                            </div>
+                        }
+                    </div>
+
+                    <div class="mt-2 text-end">
+                        <DxButton Text="Listeyi Temizle" Click="@(() => AllLogs.Clear())" RenderStyle="ButtonRenderStyle.Secondary" SizeMode="SizeMode.Small" />
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+    @if (ProductList == null)
+    {
+        <div class="text-center p-5">
+            <div class="spinner-border text-primary" role="status"></div>
+        </div>
+    }
+    else
+    {
+
+        <DxGrid Data="@ProductList"
+                ShowFilterRow="true"
+                ShowSearchBox="true"
+                SearchBoxPlaceholder="Ürün adı, SKU veya ID ile ara..."
+                CustomizeElement="OnCustomizeElement"
+                PageSize="20">
+            <Columns>
+                @* 1. Sıra Numarası Kolonu *@
+                <DxGridDataColumn Caption="#" Width="60px" TextAlignment="GridTextAlignment.Center">
+                    <CellDisplayTemplate>
+                        @* Görünür sırayı almak için ProductList içindeki index'ini kullanıyoruz *@
+                        @{
+                            var index = ProductList?.IndexOf((ProductNode)context.DataItem) + 1;
+                            @index
+                        }
+                    </CellDisplayTemplate>
+                </DxGridDataColumn>
+
+                @* 2. Shopify ID Kolonu *@
+                <DxGridDataColumn FieldName="Id" Caption="Shopify GID" Width="250px">
+                    <CellDisplayTemplate>
+                        <code style="font-size: 0.8rem;" class="text-muted">@(((ProductNode)context.DataItem).Id)</code>
+                    </CellDisplayTemplate>
+                </DxGridDataColumn>
+
+                @* 3. Ürün Adı *@
+                <DxGridDataColumn FieldName="Title" Caption="Ürün Adı" />
+
+                @* 4. Durum *@
+                <DxGridDataColumn FieldName="Status" Caption="Durum" Width="100px">
+                    <CellDisplayTemplate>
+                        @{
+                            var status = ((ProductNode)context.DataItem).Status;
+                            <span class="badge @(status == "ACTIVE" ? "bg-success" : "bg-secondary")">@status</span>
+                        }
+                    </CellDisplayTemplate>
+                </DxGridDataColumn>
+
+                @* 5. Varyant Detayları *@
+                <DxGridDataColumn Caption="Varyantlar (SKU | ID | Fiyat)">
+                    <CellDisplayTemplate>
+                        @{
+                            var node = (ProductNode)context.DataItem;
+                            foreach (var v in node.Variants.Edges)
+                            {
+                                <div class="mb-1 p-1 border-bottom" style="font-size: 0.85rem;">
+                                    <strong>@v.Node.Sku</strong> <br />
+                                    <small class="text-primary">@v.Node.Id</small> <br />
+                                    <span class="text-success fw-bold">@v.Node.Price TL</span>
+                                </div>
+                            }
+                        }
+                    </CellDisplayTemplate>
+                </DxGridDataColumn>
+                <DxGridDataColumn Caption="Fiyat İşlemleri" Width="350px">
+                    <CellDisplayTemplate Context="gridContext">
+                        @{
+                            var node = (ProductNode)gridContext.DataItem;
+
+                            <div class="p-2 mb-3 border rounded bg-light shadow-sm">
+                                <small class="fw-bold d-block mb-1 text-primary">Tüm Varyantları Aynı Yap</small>
+                                <div class="d-flex gap-2">
+                                    <DxTextBox @bind-Text="@node.BulkTempPrice"
+                                               NullText="Toplu Fiyat Girin"
+                                               SizeMode="SizeMode.Small"
+                                               class="flex-grow-1" />
+
+                                    <DxButton Click="@(() => UpdateAllProductVariants(node))"
+                                              RenderStyle="ButtonRenderStyle.Warning"
+                                              SizeMode="SizeMode.Small"
+                                              Enabled="@(!node.IsBulkSaving && !string.IsNullOrEmpty(node.BulkTempPrice))">
+                                        @if (node.IsBulkSaving)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fas fa-layer-group me-1"></span>
+
+                                            <span>Uygula</span>
+                                        }
+                                    </DxButton>
+                                </div>
+                            </div>
+
+                            <hr class="my-2" />
+
+                            @foreach (var v in node.Variants.Edges)
+                            {
+
+                                <div class="d-flex align-items-center mb-2 gap-2 border-bottom pb-2">
+                                    <div class="flex-grow-1">
+                                        <small class="text-muted d-block" style="font-size:0.7rem; font-weight:bold;">@v.Node.Sku</small>
+                                        <DxTextBox @bind-Text="@v.Node.TempPrice"
+                                                   NullText="@v.Node.Price"
+                                                   SizeMode="SizeMode.Small" />
+                                    </div>
+                                    <div class="pt-3">
+                                        <DxButton Click="@(() => UpdateSinglePrice(node.Id, v.Node))"
+                                                  RenderStyle="ButtonRenderStyle.Primary"
+                                                  SizeMode="SizeMode.Small"
+                                                  Enabled="@(!v.Node.IsSaving)"
+                                                  Width="120px">
+                                            @* Yazının sığması için sabit genişlik *@
+                                            @if (v.Node.IsSaving)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            else
+                                            {
+                                                <i class="fas fa-save me-1"></i>
+
+                                                <span>Fiyatı Kaydet</span>
+                                            }
+                                        </DxButton>
+                                    </div>
+                                </div>
+
+                            }
+                        }
+                    </CellDisplayTemplate>
+                </DxGridDataColumn>
+
+                <DxGridDataColumn Caption="Stok İşlemleri" Width="320px">
+                    <CellDisplayTemplate Context="gridContext">
+                        @{
+                            var node = (ProductNode)gridContext.DataItem;
+                            foreach (var v in node.Variants.Edges)
+                            {
+                                <div class="d-flex align-items-center mb-2 gap-2 border-bottom pb-2">
+                                    <div class="flex-grow-1">
+                                        <small class="text-muted d-block" style="font-size:0.7rem; font-weight:bold;">@v.Node.Sku</small>
+                                        <DxTextBox @bind-Text="@v.Node.TempStock"
+                                                   NullText="@v.Node.InventoryQuantity.ToString()"
+                                                   SizeMode="SizeMode.Small" />
+                                    </div>
+                                    <div class="pt-3">
+                                        <DxButton Click="@(() => UpdateSingleStock(node.Id, v.Node))"
+                                                  RenderStyle="ButtonRenderStyle.Info"
+                                                  SizeMode="SizeMode.Small"
+                                                  Enabled="@(!v.Node.IsStockSaving)"
+                                                  Width="120px">
+                                            @if (v.Node.IsStockSaving)
+                                            {
+                                                <span class="spinner-border spinner-border-sm"></span>
+                                            }
+                                            else
+                                            {
+                                                <i class="fas fa-boxes me-1"></i>
+
+                                                <span>Stoku Kaydet</span>
+                                            }
+                                        </DxButton>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </CellDisplayTemplate>
+                </DxGridDataColumn>
+            </Columns>
+        </DxGrid>
+    }
+</div>
+<script>
+    function saveAsFile(filename, bytesBase64) {
+        var link = document.createElement('a');
+        link.download = filename;
+        link.href = "data:application/octet-stream;base64," + bytesBase64;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+<style>
+
+    .grid-search-panel {
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+
+    .updated-row, .updated-row td {
+        background-color: #d4edda !important; /* Hafif Yeşil */
+        color: #155724 !important; /* Koyu Yeşil Yazı */
+        transition: background-color 0.5s ease;
+    }
+
+    .dxbl-grid .d-flex {
+        min-height: 55px; /* Satır yüksekliğini sabitleyerek butonların kaymasını engeller */
+    }
+
+    .input-label-small {
+        font-size: 11px;
+        font-weight: bold;
+        color: #6c757d;
+    }
+</style>
+@code {
+    private List<ProductNode>? ProductList;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProducts();
+    }
+
+    private async Task LoadProducts()
+    {
+        ProductList = null; // Loading tetikle
+        ProductList = await ShopifyService.GetProductsAsync();
+    }
+    private async Task ExportToExcel()
+    {
+        if (ProductList == null || !ProductList.Any()) return;
+
+        var fileContent = ShopifyService.ExportProductsToExcel(ProductList);
+        var fileName = $"Shopify_Urun_Listesi_{DateTime.Now:yyyyMMdd}.xlsx";
+
+        // Blazor'da dosya indirmek için küçük bir JS yardımcı fonksiyonu gerekir
+        await JS.InvokeVoidAsync("saveAsFile", fileName, Convert.ToBase64String(fileContent));
+    }
+
+    private bool isProcessing = false;
+    private string currentStatus = "";
+    private List<string> ProcessingLogs = new List<string>(); // Mesajları burada tutacağız
+
+    private CancellationTokenSource? _cts; // İptal kontrolü için
+
+    private void CancelProcessing()
+    {
+        _cts?.Cancel(); // İptal sinyalini gönder
+        AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = "İptal sinyali gönderildi, durduruluyor...", Type = LogType.Info });
+    }
+
+    private async Task HandleExcelUpload(InputFileChangeEventArgs e)
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            AllLogs.Insert(0, new LogEntry { Message = "Kullanıcı oturumu bulunamadı!", Type = LogType.Error });
+            return;
+        }
+
+        isProcessing = true;
+        _cts = new CancellationTokenSource();
+        int sessionId = await _logService.CreateSessionAsync(e.File.Name, 0, userId);
+        AllLogs.Clear();
+        currentStatus = "Dosya analiz ediliyor...";
+        StateHasChanged();
+        int processedCount = 0;
+        int totalToProcess = 0;
+        try
+        {
+            using var stream = new MemoryStream();
+            await e.File.OpenReadStream(maxAllowedSize: 15 * 1024 * 1024).CopyToAsync(stream);
+
+            using var workbook = new XLWorkbook(stream);
+            var worksheet = workbook.Worksheet(1);
+
+            var rowsToUpdate = worksheet.RangeUsed().RowsUsed().Skip(1)
+            .Where(row => !string.IsNullOrWhiteSpace(row.Cell(5).GetValue<string>()) ||
+                          !string.IsNullOrWhiteSpace(row.Cell(7).GetValue<string>()))
+            .ToList();
+            totalToProcess = rowsToUpdate.Count;
+            await LogServiceInstance.AddLogAsync(sessionId, "İşlem başladı", "Info");
+            
+            int currentRowIndex = 0;
+            
+            AllLogs.Add(new LogEntry
+            {
+                Time = DateTime.Now,
+                Message = $"Analiz Tamamlandı: Toplam {worksheet.RangeUsed().RowsUsed().Count() - 1} satırdan {totalToProcess} tanesi güncellenecek.",
+                Type = LogType.Info
+            });
+
+            if (totalToProcess == 0)
+            {
+                currentStatus = "Güncellenecek veri bulunamadı.";
+                return;
+            }
+
+
+            foreach (var row in rowsToUpdate)
+            {
+                if (_cts.Token.IsCancellationRequested)
+                {
+                    AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = "İŞLEM KULLANICI TARAFINDAN DURDURULDU.", Type = LogType.Error });
+                    break;
+                }
+                currentRowIndex++; // Her döngüde satır numarasını artır
+
+                string variantId = row.Cell(2).GetValue<string>();
+                string sku = row.Cell(3).GetValue<string>();
+                string newPrice = row.Cell(5).GetValue<string>();
+                string newStock = row.Cell(7).GetValue<string>();
+                string productId = row.Cell(8).GetValue<string>();
+
+                // Durum bilgisini güncelle
+                currentStatus = $"İşleniyor: Satır {currentRowIndex} / {totalToProcess}";
+                StateHasChanged();
+
+                // 1. FİYAT GÜNCELLEME
+                if (!string.IsNullOrWhiteSpace(newPrice))
+                {
+                    var priceResult = await ShopifyService.UpdateVariantPriceAsync(productId, variantId, newPrice, _cts.Token);
+                    if (priceResult.Success)
+                    {
+                        AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = $"[Satır {currentRowIndex}] [FİYAT] {sku} -> {newPrice} TL yapıldı.", Type = LogType.Success });
+                        await _logService.AddLogAsync(sessionId, $"[Satır {currentRowIndex}] [FİYAT] {sku} -> {newPrice} TL yapıldı.", "Success", sku, variantId);
+                    }
+                    else
+                    {
+                        AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = $"[Satır {currentRowIndex}] [FİYAT HATA] {sku}: {priceResult.Message}", Type = LogType.Error });
+                        await _logService.AddLogAsync(sessionId, $"[Satır {currentRowIndex}] [FİYAT HATA] {sku}: {priceResult.Message}", "Error", sku, variantId);
+
+                    }
+                }
+                await Task.Delay(50);
+                // 2. STOK GÜNCELLEME
+                if (!string.IsNullOrWhiteSpace(newStock) && int.TryParse(newStock, out int qty))
+                {
+                    var currentVariant = ProductList?.SelectMany(p => p.Variants.Edges)
+                                                  .FirstOrDefault(v => v.Node.Id == variantId)?.Node;
+
+                    if (currentVariant != null)
+                    {
+                        var stockResult = await ShopifyService.UpdateStockAsync(currentVariant.inventoryItem.Id, qty, _cts.Token);
+                        if (stockResult.Success)
+                        {
+                            AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = $"[Satır {currentRowIndex}] [STOK] {sku} -> {qty} adet yapıldı.", Type = LogType.Success });
+                            await _logService.AddLogAsync(sessionId, $"[Satır {currentRowIndex}] [STOK] {sku} -> {qty} adet yapıldı.", "Success", sku, variantId);
+
+                        }
+                        else
+                        {
+                            AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = $"[Satır {currentRowIndex}] [STOK HATA] {sku}: {stockResult.Message}", Type = LogType.Error });
+                            await _logService.AddLogAsync(sessionId, $"[Satır {currentRowIndex}] [STOK HATA] {sku}: {stockResult.Message}", "Error", sku, variantId);
+
+                        }
+                    }
+                }
+                processedCount++;
+
+                
+                if (processedCount % 10 == 0)
+                {
+                    await _logService.UpdateSessionStatusAsync(sessionId, "İşleniyor", processedCount,totalToProcess);
+                }
+
+                await Task.Delay(50, _cts.Token);
+                // Arayüzü her satırda güncelle (Logların akması için)
+                if (currentRowIndex % 5 == 0)
+                {
+                    StateHasChanged();
+                }
+            }
+            await _logService.UpdateSessionStatusAsync(sessionId, "Tamamlandı", processedCount, totalToProcess);
+            currentStatus = $"İşlem tamamlandı. toplam {totalToProcess} satır kontrol edildi.";
+        }
+        catch (OperationCanceledException)
+        {
+            // İptal edildiğinde oluşabilecek beklenen hata
+        }
+        catch (Exception ex)
+        {
+            AllLogs.Insert(0, new LogEntry { Time = DateTime.Now, Message = $"Kritik Hata: {ex.Message}", Type = LogType.Error });
+            await LogServiceInstance.AddLogAsync(sessionId, $"Hata: {ex.Message}", "Error");
+            await _logService.UpdateSessionStatusAsync(sessionId, "Hata ile Bitti", processedCount, totalToProcess);
+        }
+        finally
+        {
+            isProcessing = false; // Spinner'ı kapat
+            _cts.Dispose();
+            await LoadProducts(); // Verileri tazele
+            await InvokeAsync(StateHasChanged); // UI'ı son kez güncelle
+        }
+    }
+
+    public class LogEntry
+    {
+        public DateTime Time { get; set; }
+        public string Message { get; set; }
+        public LogType Type { get; set; }
+    }
+    public enum LogType { Success, Error, Info }
+
+    private List<LogEntry> AllLogs = new List<LogEntry>();
+    private LogType? SelectedFilter = null; // null: Tümü, Success: Başarılılar, Error: Hatalar
+
+    // Filtrelenmiş listeyi getiren property
+    private IEnumerable<LogEntry> FilteredLogs => SelectedFilter == null
+        ? AllLogs
+        : AllLogs.Where(x => x.Type == SelectedFilter);
+
+    private async Task UpdateSinglePrice(string productId, VariantNode variant)
+    {
+        if (string.IsNullOrWhiteSpace(variant.TempPrice)) return;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            AllLogs.Insert(0, new LogEntry { Message = "Kullanıcı oturumu bulunamadı!", Type = LogType.Error });
+            return;
+        }
+        int sessionId = await _logService.CreateSessionAsync("Tekil Güncelleme :"+productId, 0, userId);
+
+        variant.IsSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            // Daha önce yazdığımız servis metodunu aynen kullanıyoruz
+            var result = await ShopifyService.UpdateVariantPriceAsync(productId, variant.Id, variant.TempPrice);
+            await _logService.UpdateSessionStatusAsync(sessionId, "İşleniyor", 1, 1);
+
+            if (result.Success)
+            {
+                // Başarılıysa mevcut fiyatı güncelle ve giriş alanını temizle
+                variant.Price = variant.TempPrice;
+                variant.TempPrice = null;
+
+                AllLogs.Add(new LogEntry
+                {
+                    Time = DateTime.Now,
+                    Message = $"Ekranda Güncellendi: {variant.Sku} -> {variant.Price} TL",
+                    Type = LogType.Success
+                });
+
+                var product = ProductList.FirstOrDefault(p => p.Id == productId);
+
+                await _logService.AddLogAsync(sessionId, $"[FİYAT] {variant.Sku} -> {variant.Price} TL yapıldı.", "Success", variant.Sku, variant.Id);
+
+                if (product != null)
+                {
+                    product.IsUpdated = true;
+                    StateHasChanged();
+
+                    // 3 saniye sonra yeşil rengi kaldır (fading etkisi CSS ile yapılacak)
+                    _ = Task.Delay(3000).ContinueWith(_ =>
+                    {
+                        product.IsUpdated = false;
+                        InvokeAsync(StateHasChanged);
+                    });
+                }
+                await _logService.UpdateSessionStatusAsync(sessionId, "Tamamlandı", 1, 1);
+
+            }
+            else
+            {
+                AllLogs.Add(new LogEntry
+                {
+                    Time = DateTime.Now,
+                    Message = $"HATA ({variant.Sku}): {result.Message}",
+                    Type = LogType.Error
+                });
+                await _logService.UpdateSessionStatusAsync(sessionId, "Hata İle Bitti", 1, 1);
+
+            }
+        }
+        catch (Exception ex)
+        {
+            AllLogs.Add(new LogEntry { Time = DateTime.Now, Message = $"Sistem Hatası: {ex.Message}", Type = LogType.Error });
+            await _logService.UpdateSessionStatusAsync(sessionId, "Hata İle Bitti", 1, 1);
+
+        }
+        finally
+        {
+            variant.IsSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task UpdateAllProductVariants(ProductNode node)
+    {
+        if (string.IsNullOrWhiteSpace(node.BulkTempPrice)) return;
+
+        node.IsBulkSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            // Üründeki tüm varyant ID'lerini listeliyoruz
+            var variantIds = node.Variants.Edges.Select(e => e.Node.Id).ToList();
+
+            var result = await ShopifyService.UpdateAllVariantsPriceAsync(node.Id, variantIds, node.BulkTempPrice);
+
+            if (result.Success)
+            {
+                // Başarılıysa ekrandaki tüm varyant fiyatlarını ve giriş alanlarını temizle
+                foreach (var v in node.Variants.Edges)
+                {
+                    v.Node.Price = node.BulkTempPrice;
+                    v.Node.TempPrice = null;
+                }
+
+                string oldBulkPrice = node.BulkTempPrice;
+                node.BulkTempPrice = null;
+
+                AllLogs.Add(new LogEntry
+                {
+                    Time = DateTime.Now,
+                    Message = $"TOPLU GÜNCELLEME: {node.Title} - Tüm varyantlar {oldBulkPrice} TL yapıldı.",
+                    Type = LogType.Success
+                });
+
+                node.IsUpdated = true;
+                StateHasChanged();
+
+                _ = Task.Delay(3000).ContinueWith(_ =>
+                {
+                    node.IsUpdated = false;
+                    InvokeAsync(StateHasChanged);
+                });
+            }
+            else
+            {
+                AllLogs.Add(new LogEntry { Time = DateTime.Now, Message = $"Toplu Güncelleme Hatası: {node.Title}", Type = LogType.Error });
+            }
+        }
+        catch (Exception ex)
+        {
+            AllLogs.Add(new LogEntry { Time = DateTime.Now, Message = $"Sistem Hatası: {ex.Message}", Type = LogType.Error });
+        }
+        finally
+        {
+            node.IsBulkSaving = false;
+            StateHasChanged();
+        }
+    }
+    
+    void OnCustomizeElement(GridCustomizeElementEventArgs e)
+    {
+        if (e.ElementType == GridElementType.DataRow && e.VisibleIndex >= 0)
+        {
+            var product = e.Grid.GetDataItem(e.VisibleIndex) as ProductNode;
+
+            if (product != null && product.IsUpdated)
+            {
+                e.CssClass = "updated-row";
+            }
+        }
+    }
+    private async Task UpdateSingleStock(string productId, VariantNode variant)
+    {
+        if (!int.TryParse(variant.TempStock, out int newQty)) return;
+
+        variant.IsStockSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await ShopifyService.UpdateStockAsync(variant.inventoryItem.Id, newQty);
+
+            if (result.Success)
+            {
+                variant.InventoryQuantity = newQty;
+                variant.TempStock = null;
+
+                // Görsel Geri Bildirim
+                var product = ProductList.FirstOrDefault(p => p.Id == productId);
+                if (product != null)
+                {
+                    product.IsUpdated = true;
+                    _ = Task.Delay(3000).ContinueWith(_ => { product.IsUpdated = false; InvokeAsync(StateHasChanged); });
+                }
+
+                AllLogs.Add(new LogEntry { Time = DateTime.Now, Message = $"Stok Güncellendi: {variant.Sku} -> {newQty} Adet", Type = LogType.Success });
+            }
+            else
+            {
+                AllLogs.Add(new LogEntry { Time = DateTime.Now, Message = $"Stok Hatası: {result.Message}", Type = LogType.Error });
+            }
+        }
+        catch (Exception ex)
+        {
+            AllLogs.Add(new LogEntry { Time = DateTime.Now, Message = $"Sistem Hatası: {ex.Message}", Type = LogType.Error });
+        }
+        finally
+        {
+            variant.IsStockSaving = false;
+            StateHasChanged();
+        }
+    }
+}

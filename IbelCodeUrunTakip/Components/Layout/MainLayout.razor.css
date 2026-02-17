@@ -1,0 +1,63 @@
+﻿
+
+::deep .content {
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+::deep .icon-back {
+    --icon-mask-image: var(--icon-back-mask-image);
+}
+
+::deep .icon-close {
+    --icon-mask-image: var(--icon-close-mask-image);
+}
+
+::deep .icon-menu {
+    --icon-mask-image: var(--icon-menu-mask-image);
+}
+
+::deep .icon-log-in {
+    --icon-mask-image: var(--icon-log-in-mask-image);
+}
+
+::deep .icon-log-out {
+    --icon-mask-image: var(--icon-log-out-mask-image);
+}
+
+::deep .icon-user {
+    --icon-mask-image: var(--icon-user-mask-image);
+}
+
+::deep .docs-icon {
+    --icon-mask-image: var(--icon-docs-mask-image);
+}
+
+::deep .demos-icon {
+    --icon-mask-image: var(--icon-demos-mask-image);
+}
+
+::deep .footer-button:hover .demos-icon {
+    background-color: var(--dxbl-btn-hover-color);
+}
+
+::deep .footer-button:hover .docs-icon {
+    background-color: var(--dxbl-btn-hover-color);
+}
+
+::deep .menu-button:hover .icon {
+    background-color: var(--dxbl-btn-hover-color);
+}
+
+::deep .menu-button-nav:hover .icon {
+    background-color: var(--dxbl-btn-hover-color);
+}
+
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: white;
+}

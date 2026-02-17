@@ -1,0 +1,97 @@
+﻿.drawer-container {
+    height: 100%;
+}
+
+::deep .navigation-drawer {
+    --dxbl-drawer-panel-footer-justify-content: center;
+}
+
+::deep .navigation-drawer > .dxbl-drawer-panel {
+    background-image: linear-gradient(180deg, var(--bs-primary, var(--DS-primary-90)) 0%, var(--bs-black, #000) 150%);
+}
+
+::deep .navigation-drawer > .dxbl-drawer-content {
+    overflow: auto;
+}
+
+::deep .navigation-drawer > .dxbl-drawer-panel > .dxbl-drawer-header {
+    border-bottom: none;
+    padding: 2rem 1rem;
+    background: none;
+}
+
+::deep .navigation-drawer > .dxbl-drawer-panel > .dxbl-drawer-header > .navigation-drawer-header {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+}
+
+::deep .navigation-drawer > .dxbl-drawer-panel > .dxbl-drawer-body {
+    --dxbl-drawer-panel-body-padding-x: 0;
+    --dxbl-drawer-panel-body-padding-y: 1rem;
+}
+
+::deep .navigation-drawer > .dxbl-drawer-panel > .dxbl-drawer-footer {
+    --dxbl-drawer-panel-footer-justify-content: center;
+    border-top: none;
+    padding-bottom: 1.5rem;
+    background: none;
+}
+
+::deep .navigation-drawer > .dxbl-drawer-panel {
+    display: flex;
+}
+
+::deep .navigation-drawer.mobile > .dxbl-drawer-panel {
+    display: none;
+}
+
+::deep .navigation-drawer.mobile > .dxbl-drawer-shading {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    ::deep .navigation-drawer > .dxbl-drawer-panel {
+        display: none;
+    }
+
+    ::deep .navigation-drawer.mobile > .dxbl-drawer-panel {
+        display: flex;
+    }
+
+    ::deep .navigation-drawer.mobile > .dxbl-drawer-shading {
+        display: block;
+    }
+}
+
+::deep .panel-open:not(.mobile) .menu-button {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    ::deep .panel-open:not(.mobile) .menu-button {
+        display: inline-flex;
+    }
+
+    .mobile-drawer-closed .shading-copy {
+        display: none;
+        visibility: hidden;
+    }
+
+    ::deep .shading-copy {
+        background-color: var(--dxbl-drawer-content-shading-bg);
+        height: 100%;
+        position: absolute;
+        transition: opacity ease var(--dxbl-drawer-animation-duration);
+        visibility: visible;
+        width: 100%;
+        z-index: 99;
+        opacity: var(--dxbl-drawer-content-shading-opacity);
+    }
+
+    ::deep .panel-open .shading-copy {
+        opacity: 0;
+        visibility: unset;
+        height: unset;
+    }
+}

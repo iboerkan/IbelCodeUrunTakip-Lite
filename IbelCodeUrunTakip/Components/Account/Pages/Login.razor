@@ -1,0 +1,148 @@
+﻿@page "/Account/Login"
+@using IbelCode.Core.Models
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Forms
+@layout AuthLayout
+@inject NavigationManager NavigationManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ProjectSettings ProjectSettings
+@inject UserManager<ApplicationUser> UserManager
+@* ÖNEMLİ: Burada ASLA @rendermode Interactive... olmamalı! *@
+
+<div class="card shadow-lg p-4" style="width: 400px; margin: auto; border-radius: 15px;">
+    <div class="text-center mb-4">
+        <h4>@ProjectSettings.Title</h4>
+        <p class="text-muted">Lütfen giriş yapın</p>
+    </div>
+
+    @* 1. Model tanımlı, 2. FormName tanımlı, 3. Method post *@
+    <EditForm Model="Input" OnValidSubmit="LoginUser" FormName="loginForm" method="post">
+        @* EditForm zaten Antiforgery ekler, ekstra satıra gerek yok *@
+
+        <div class="mb-3">
+            <label class="form-label">E-posta</label>
+            <InputText @bind-Value="Input.Email" class="form-control" type="email" required />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Şifre</label>
+            <InputText @bind-Value="Input.Password" class="form-control" type="password" required />
+        </div>
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <div class="alert alert-danger py-2 small mb-3">@ErrorMessage</div>
+        }
+
+        <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-primary">Giriş Yap</button>
+          @*   <a href="/Account/Register" class="btn btn-link">Üye Ol</a> *@
+        </div>
+    </EditForm>
+</div>
+
+@code {
+    [CascadingParameter]
+    public HttpContext? HttpContext { get; set; }
+
+    // ÖNEMLİ: Hem formdan gelen veriyi yakalıyor hem de EditForm'a model oluyor.
+    [SupplyParameterFromForm]
+    public LoginInput Input { get; set; } = new();
+
+    public string? ErrorMessage { get; set; }
+
+    public class LoginInput
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+    }
+    public async Task LoginUser()
+    {
+        ErrorMessage = string.Empty;
+
+        try
+        {
+            var user = await UserManager.FindByEmailAsync(Input.Email);
+
+            if (user != null && user.UpdatePassword)
+            {
+                await SignInManager.SignInAsync(user, isPersistent: true);
+
+              
+                if (HttpContext != null)
+                {
+                    HttpContext.Response.Redirect("/reset-password");
+                }
+                return;
+            }
+
+            var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: false);
+
+            if (result.Succeeded)
+            {
+              
+                if (HttpContext != null)
+                {
+                    HttpContext.Response.Redirect("/");
+                }
+            }
+            else
+            {
+                ErrorMessage = "E-posta veya şifre hatalı!";
+            }
+        }
+        catch (Exception ex)
+        {
+            // Yönlendirme istisnalarını yutmamak için kontrol
+            if (ex is Microsoft.AspNetCore.Components.NavigationException) throw;
+
+            ErrorMessage = "Sistemsel Hata: " + ex.Message;
+        }
+    }
+    // public async Task LoginUser()
+    // {
+    //     // Temizlik
+    //     ErrorMessage = string.Empty;
+
+    //     try
+    //     {
+    //         // 1. Kullanıcıyı e-posta ile bulalım
+    //         var user = await UserManager.FindByEmailAsync(Input.Email);
+
+    //         if (user != null)
+    //         {
+    //             // 2. KRİTİK KONTROL: Eğer şifre yenileme bayrağı TRUE ise
+    //             if (user.UpdatePassword)
+    //             {
+    //                 // Şifreye hiç bakmadan (yanlış olsa bile) kullanıcıyı sisteme giriş yaptırıyoruz
+    //                 await SignInManager.SignInAsync(user, isPersistent: true);
+
+    //                 // Ve hemen reset sayfasına hapsediyoruz
+    //                 NavigationManager.NavigateTo("/reset-password", forceLoad: true);
+    //                 return;
+    //             }
+    //         }
+
+    //         // 3. NORMAL AKIŞ: Bayrak false ise standart şifre kontrolü yapılır
+    //         var result = await SignInManager.PasswordSignInAsync(Input.Email, Input.Password, isPersistent: true, lockoutOnFailure: false);
+
+    //         if (result.Succeeded)
+    //         {
+    //             NavigationManager.NavigateTo("/", forceLoad: true);
+    //         }
+    //         else
+    //         {
+    //             ErrorMessage = "E-posta veya şifre hatalı!";
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         // Eğer hata bir yönlendirme ise (Blazor'ın normal işleyişi), bırak gitsin.
+    //         if (ex is Microsoft.AspNetCore.Components.NavigationException)
+    //         {
+    //             throw;
+    //         }
+    //         ErrorMessage = "Sistemsel Hata: " + ex.Message;
+    //     }
+    // }
+}

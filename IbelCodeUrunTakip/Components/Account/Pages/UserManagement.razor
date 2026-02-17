@@ -1,0 +1,472 @@
+﻿@page "/kullanici-yonetimi"
+@attribute [Authorize(Roles = "Admin,BT")]
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@rendermode InteractiveServer
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IServiceScopeFactory ScopeFactory
+
+    <div class="container-fluid mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h3><i class="bi bi-people text-primary"></i> Kullanıcı Yönetimi</h3>
+            <div class="d-flex gap-3">
+                @* DEPARTMAN FİLTRESİ *@
+                <select class="form-select border-primary" style="min-width: 200px;" @onchange="OnDeptFilterChanged">
+                    <option value="">Tüm Departmanlar</option>
+                    @foreach (var dept in existingDepartments)
+                    {
+                        <option value="@dept">@dept</option>
+                    }
+                </select>
+
+                <button class="btn btn-primary shadow-sm" @onclick="ShowAddUserModal">
+                    <i class="bi bi-person-plus"></i> Yeni Ekle
+                </button>
+            </div>
+        </div>
+
+        @* ACCORDION BAŞLIYOR *@
+        <div class="accordion shadow-sm" id="userAccordion">
+            @foreach (var group in GroupedUsers)
+            {
+                var deptName = group.Key;
+                bool isOpen = IsExpanded(deptName);
+
+                <div class="accordion-item border-0 mb-2 shadow-sm rounded overflow-hidden">
+                    <h2 class="accordion-header">
+                    
+                        <button class="accordion-button bg-light fw-bold text-dark @(isOpen ? "" : "collapsed")"
+                                type="button"
+                                @onclick="() => ToggleAccordion(deptName)">
+                            <i class="bi bi-building me-2 text-primary"></i>
+                            @deptName
+                            <span class="badge bg-primary rounded-pill ms-2">@group.Count() Kişi</span>
+                        </button>
+                    </h2>
+
+                    @* isOpen değerine göre 'show' class'ını ekleyip çıkartıyoruz *@
+                    <div class="accordion-collapse collapse @(isOpen ? "show" : "")">
+                        <div class="accordion-body bg-white p-0">
+                            <table class="table table-hover align-middle mb-0">
+                              
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-4">Personel</th>
+                                        <th>Şirket</th>
+                                        <th>Roller</th>
+                                        <th class="text-end pe-4">İşlemler</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in group)
+                                    {
+                                        <tr>
+                                            <td class="ps-4">
+                                                <div class="fw-bold">@item.User.FirstName @item.User.LastName</div>
+                                                <div class="small text-muted">@item.User.Email</div>
+                                            </td>
+                                            <td>
+                                                <span class="text-dark small">@item.User.CompanyName</span>
+                                            </td>
+                                            <td>
+                                                @foreach (var role in item.Roles)
+                                                {
+                                                    <span class="badge bg-secondary me-1">@role</span>
+                                                }
+                                            </td>
+                                            <td class="text-end pe-4">
+                                                <button class="btn btn-sm btn-outline-warning me-2" @onclick="() => ShowEditUserModal(item)">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteUser(item.User)">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                                <div class="form-check form-switch d-flex justify-content-center">
+                                                    <input class="form-check-input" type="checkbox" role="switch"
+                                                           id="lockout_@item.User.Id"
+                                                           checked="@IsUserLockedOut(item.User)"
+                                                           @onchange="(e) => ToggleLockout(item.User, e)"
+                                                           disabled="@(item.User.Id == currentUserId)" /> @* Kendini donduramasın *@
+                                                    <label class="form-check-label ms-2 small">
+                                                        @(IsUserLockedOut(item.User) ? "Donduruldu" : "Aktif")
+                                                    </label>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+
+
+
+@* KULLANICI EKLEME MODAL *@
+@if (showModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5)" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header @(isEditMode ? "bg-warning" : "bg-primary") text-white">
+                    <h5 class="modal-title fw-bold">@(isEditMode ? "Kullanıcıyı Düzenle" : "Yeni Personel Kaydı")</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => showModal = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Ad</label>
+                            @* autocomplete="off" ekledik *@
+                            <input type="text" class="form-control" @bind="newFirstName" autocomplete="off" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Soyad</label>
+                            <input type="text" class="form-control" @bind="newLastName" autocomplete="off" />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Şirket / Kurum</label>
+                        <input type="text" class="form-control" @bind="newCompany" autocomplete="off" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">E-Posta Adresi</label>
+                        <input type="email" class="form-control" @bind="newUserEmail" disabled="@isEditMode" autocomplete="off" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Departman Bilgisi</label>
+                        @* Departman kısmında datalist çalışmaya devam eder *@
+                        <input type="text"
+                               class="form-control"
+                               placeholder="Örn: Muhasebe, Bilgi İşlem"
+                               @bind="newDepartment"
+                               list="deptList"
+                               autocomplete="off" /> @* Tarayıcı geçmişini kapatır ama datalist'i engellemez *@
+
+                        <datalist id="deptList">
+                            @foreach (var dept in existingDepartments)
+                            {
+                                <option value="@dept" />
+                            }
+                        </datalist>
+                        <small class="text-muted">Mevcut departmanlardan seçebilir veya yeni bir tane yazabilirsiniz.</small>
+                    </div>
+
+                    @if (isAdmin)
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Sistem Yetkileri (Roller)</label>
+                            <div class="p-3 border rounded bg-light" style="max-height: 150px; overflow-y: auto;">
+                                @foreach (var role in allRoles.Where(r => r.Name != "User")) @* User rolünü listeden gizliyoruz *@
+                                {
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="role_@role.Id"
+                                               checked="@selectedRoleNames.Contains(role.Name)"
+                                               @onchange="(e) => OnRoleToggled(role.Name, e.Value)">
+                                        <label class="form-check-label" for="role_@role.Id">
+                                            @role.Name
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                            <small class="text-muted">Kullanıcının sahip olacağı özel yetkileri seçin. (Her kullanıcıya varsayılan olarak "User" yetkisi eklenir.)</small>
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Geçici Şifre</label>
+                        @* Şifre yöneticilerini engellemek için new-password en iyisidir *@
+                        <input type="password" class="form-control" @bind="newPassword" autocomplete="new-password" />
+                    </div>
+
+                    <div class="mb-3 p-2 border rounded @(isUpdatePasswordRequired ? "bg-warning-subtle" : "bg-light")">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="updatePwdFlag" @bind="isUpdatePasswordRequired">
+                            <label class="form-check-label fw-bold" for="updatePwdFlag">
+                                <i class="bi bi-arrow-repeat text-primary"></i> İlk Girişte Şifre Değişikliği Zorunlu
+                            </label>
+                        </div>
+                        <small class="text-muted ps-4">
+                            Bu seçenek aktif edilirse, kullanıcı sisteme girdiğinde şifre yenileme ekranına yönlendirilir.
+                        </small>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light">
+                    <button class="btn btn-secondary" @onclick="() => showModal = false">İptal</button>
+                    @if (isEditMode)
+                    {
+                        <button class="btn btn-warning px-4" @onclick="UpdateUser">Güncelle</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-primary px-4" @onclick="CreateUser">Kaydet</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool isAdmin;
+    private string currentUserId = "";
+    private bool isUpdatePasswordRequired = false;
+    private List<string> selectedRoleNames = new List<string>();
+    private class UserViewModel
+    {
+        public ApplicationUser User { get; set; } = null!;
+        public IList<string> Roles { get; set; } = new List<string>();
+    }
+    private string selectedDeptFilter = "";
+
+    // Filtre değiştiğinde tetiklenecek metot
+    private void OnDeptFilterChanged(ChangeEventArgs e)
+    {
+        selectedDeptFilter = e.Value?.ToString() ?? "";
+        StateHasChanged();
+    }
+
+    // Görünümde kullanılacak gruplanmış liste
+    private IEnumerable<IGrouping<string, UserViewModel>> GroupedUsers =>
+        userList
+        .Where(u => string.IsNullOrEmpty(selectedDeptFilter) || u.User.Department == selectedDeptFilter)
+        .GroupBy(u => string.IsNullOrEmpty(u.User.Department) ? "Departman Belirtilmemiş" : u.User.Department)
+        .OrderBy(g => g.Key);
+    private List<UserViewModel> userList = new();
+    private List<IdentityRole> allRoles = new();
+    private bool showModal = false;
+    private string newUserEmail = "";
+    private string newPassword = "";
+    private string newDepartment = "";
+    private string selectedRole = "User";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        currentUserId = userPrincipal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        using var scope = ScopeFactory.CreateScope();
+
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await userManager.GetUserAsync(userPrincipal);
+
+        if (user != null)
+        {
+            currentUserId = user.Id;
+
+            // Roller
+            isAdmin = await userManager.IsInRoleAsync(user, "Admin");
+            
+        }
+        await LoadData();
+    }
+    private List<string> existingDepartments = new();
+    private async Task LoadData()
+    {
+        allRoles = await RoleManager.Roles.ToListAsync();
+        var dbUsers = await UserManager.Users.ToListAsync();
+
+
+        // Mevcut departmanları benzersiz olarak listele
+        existingDepartments = dbUsers
+            .Where(u => !string.IsNullOrEmpty(u.Department))
+            .Select(u => u.Department!)
+            .Distinct()
+            .OrderBy(d => d)
+            .ToList();
+
+        var tempUserList = new List<UserViewModel>();
+        foreach (var user in dbUsers)
+        {
+            var roles = await UserManager.GetRolesAsync(user);
+            tempUserList.Add(new UserViewModel { User = user, Roles = roles });
+        }
+        userList = tempUserList;
+    }
+
+
+    private async Task CreateUser()
+    {
+        if (string.IsNullOrEmpty(newUserEmail) || string.IsNullOrEmpty(newPassword)) return;
+
+        var user = new ApplicationUser
+        {
+            UserName = newUserEmail,
+            Email = newUserEmail,
+            FirstName = newFirstName,
+            LastName = newLastName,
+            CompanyName = newCompany,
+            Department = newDepartment,
+            EmailConfirmed = true,
+            UpdatePassword = isUpdatePasswordRequired
+        };
+
+        var result = await UserManager.CreateAsync(user, newPassword);
+        if (result.Succeeded)
+        {
+            await UserManager.AddToRoleAsync(user, selectedRole);
+            if(selectedRole!="Admin" && selectedRole!="BT" && selectedRole!="User"){
+                // Yeni kullanıcı admin,bt veyas user değilse user rolü eklensin.
+                await UserManager.AddToRoleAsync(user, "User");
+            }
+            showModal = false;
+            await LoadData();
+        }
+    }
+
+    private async Task DeleteUser(ApplicationUser user)
+    {
+        var result = await UserManager.DeleteAsync(user);
+        if (result.Succeeded) await LoadData();
+    }
+
+    private bool isEditMode = false;
+    private ApplicationUser? editingUser;
+    private string newFirstName = "";
+    private string newLastName = "";
+    private string newCompany = "";
+    // Düzenleme Modalını Açan Metot
+    private async Task ShowEditUserModal(UserViewModel item)
+    {
+        isEditMode = true;
+        editingUser = item.User;
+
+        newFirstName = item.User.FirstName ?? "";
+        newLastName = item.User.LastName ?? "";
+        newCompany = item.User.CompanyName ?? "";
+
+        newUserEmail = item.User.Email;
+        newDepartment = item.User.Department;
+        selectedRole = item.Roles.FirstOrDefault() ?? "User"; // Mevcut ilk rolü seç
+        newPassword = ""; // Güvenlik için şifre boş gelir (sadece değişecekse doldurulur)
+        isUpdatePasswordRequired = item.User.UpdatePassword;
+
+
+        var roles = await UserManager.GetRolesAsync(editingUser);
+        selectedRoleNames = roles.Where(r => r != "User").ToList(); // User hariç diğerlerini listeye al
+        showModal = true;
+    }
+
+    private void OnRoleToggled(string roleName, object isChecked)
+    {
+        if ((bool)isChecked)
+        {
+            if (!selectedRoleNames.Contains(roleName))
+                selectedRoleNames.Add(roleName);
+        }
+        else
+        {
+            selectedRoleNames.Remove(roleName);
+        }
+    }
+    // GÜNCELLEME METODU
+    private async Task UpdateUser()
+    {
+        if (editingUser == null) return;
+
+        // 1. Kullanıcıyı veritabanından güncel halini çekelim (Tracking çakışması olmaması için)
+        var user = await UserManager.FindByIdAsync(editingUser.Id);
+        if (user == null) return;
+
+        // 2. Temel Bilgileri Güncelle
+        user.FirstName = newFirstName;
+        user.LastName = newLastName;
+        user.CompanyName = newCompany;
+        user.Department = newDepartment;
+        user.Email = newUserEmail;
+        user.UserName = newUserEmail;
+        user.UpdatePassword = isUpdatePasswordRequired;
+        var result = await UserManager.UpdateAsync(user);
+
+        if (result.Succeeded)
+        {
+            
+
+            var currentRoles = await UserManager.GetRolesAsync(user);
+            await UserManager.RemoveFromRolesAsync(user, currentRoles); // Önce tüm rolleri temizle
+
+            // Seçilen özel rolleri ekle
+            await UserManager.AddToRolesAsync(user, selectedRoleNames);
+
+            // VE HER ŞARTTA "User" rolünü ekle (Senin istediğin kural)
+            if (!selectedRoleNames.Contains("User"))
+            {
+                await UserManager.AddToRoleAsync(user, "User");
+            }
+
+            showModal = false;
+            await LoadData(); // Listeyi yenile
+        }
+    }
+
+    // CreateUser modalını açarken isEditMode = false yapmayı unutmayın
+    private void ShowAddUserModal()
+    {
+        isEditMode = false;
+        editingUser = null;
+        newUserEmail = "";
+        newPassword = "";
+        newDepartment = "";
+        selectedRole = "User";
+        showModal = true;
+    }
+
+    // Hangi departman panelinin açık olduğunu tutar
+    private Dictionary<string, bool> accordionStates = new();
+
+    private void ToggleAccordion(string deptName)
+    {
+        if (accordionStates.ContainsKey(deptName))
+        {
+            accordionStates[deptName] = !accordionStates[deptName];
+        }
+        else
+        {
+            accordionStates[deptName] = true; // İlk kez tıklanıyorsa aç
+        }
+    }
+
+    private bool IsExpanded(string deptName)
+    {
+        return accordionStates.ContainsKey(deptName) && accordionStates[deptName];
+    }
+
+    private bool IsUserLockedOut(ApplicationUser user)
+    {
+        // Eğer kilitlenme tarihi null değilse ve şu anki tarihten ilerideyse kullanıcı dondurulmuştur
+        return user.LockoutEnd.HasValue && user.LockoutEnd > DateTimeOffset.Now;
+    }
+
+    private async Task ToggleLockout(ApplicationUser user, ChangeEventArgs e)
+    {
+        bool isFrozen = (bool)(e.Value ?? false);
+
+        if (isFrozen)
+        {
+            // Hesabı dondur: 2099 yılına kadar kilitli
+            await UserManager.SetLockoutEnabledAsync(user, true);
+            await UserManager.SetLockoutEndDateAsync(user, new DateTimeOffset(new DateTime(2099, 1, 1)));
+        }
+        else
+        {
+            // Kilidi kaldır: LockoutEnd tarihini geçmişe veya null'a çek
+            await UserManager.SetLockoutEndDateAsync(user, null);
+        }
+
+        // Listeyi ve UI'ı güncelle
+        await LoadData();
+    }
+}

@@ -1,0 +1,135 @@
+﻿@page "/AramaGecmisi"
+@attribute [Authorize(Roles = "Admin, Eticaret")]
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@rendermode InteractiveServer
+@attribute [Authorize]
+
+<div class="container-fluid p-4">
+    <h3 class="mb-4"><i class="bi bi-clock-history text-primary"></i> Arama Geçmişim</h3>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <DxGrid Data="@SearchLogs"
+                    PageSize="15"
+                    ShowFilterRow="true"
+                    ColumnResizeMode="GridColumnResizeMode.NextColumn"
+                    CssClass="w-100">
+                <Columns>
+                    <DxGridDataColumn FieldName="SearchDate" Caption="Tarih" DisplayFormat="dd.MM.yyyy HH:mm" Width="180px" SortOrder="GridColumnSortOrder.Descending" />
+                    <DxGridDataColumn FieldName="SearchTerm" Caption="Aranan Kelime" />
+                    <DxGridDataColumn FieldName="ExcludedTerms" Caption="Hariç Tutulanlar" />
+                     <DxGridDataColumn FieldName="IncludedTerms" Caption="Sadece Bunları İçerenker" />
+  
+                    <DxGridDataColumn Caption="İşlemler" Width="150px" TextAlignment="GridTextAlignment.Center">
+                        <CellDisplayTemplate>
+                            @{
+                                var log = (SearchLog)context.DataItem;
+                                <DxButton Text="Sonuçları Gör" 
+                                          RenderStyle="ButtonRenderStyle.Info" 
+                                          Size="Mode.Small"
+                                          IconCssClass="bi bi-search"
+                                          Click="@(() => ShowDetail(log))" />
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+                </Columns>
+            </DxGrid>
+        </div>
+    </div>
+</div>
+
+@* DETAY POPUP PENCERESİ *@
+@* DETAY POPUP PENCERESİ *@
+<DxWindow @bind-Visible="@IsPopupVisible"
+          HeaderTitle="Arama Sonuçları Detayı"
+          Width="80vw"
+          Height="70vh"
+          ShowCloseButton="true"
+          CloseOnEscape="true"
+          MaxWidth="1200px">
+    <BodyTextTemplate>
+        @if (SelectedResults != null)
+        {
+            <div class="p-2">
+                <div class="alert alert-secondary mb-3">
+                    <strong>Aranan:</strong> @SelectedLog?.SearchTerm | <strong>Tarih:</strong> @SelectedLog?.SearchDate.ToString("g")
+                </div>
+
+                <DxGrid Data="@SelectedResults" PageSize="10" ShowFilterRow="true">
+                    <Columns>
+                        <DxGridDataColumn FieldName="ProductTitle" Caption="Ürün Başlığı" />
+                        <DxGridDataColumn FieldName="StoreName" Caption="Mağaza" Width="150px" />
+                        <DxGridDataColumn FieldName="Price" Caption="Fiyat" Width="120px" />
+                        <DxGridDataColumn FieldName="Source" Caption="Kaynak" Width="100px" />
+                        
+                        @* HATA BURADAYDI: Context ismini özelleştirdik *@
+                        <DxGridDataColumn FieldName="Link" Caption="Link" Width="100px">
+                            <CellDisplayTemplate Context="itemContext">
+                                @* Artık itemContext.Value diyerek karmaşayı çözüyoruz *@
+                                <a href="@itemContext.Value" target="_blank" class="btn btn-sm btn-outline-primary">Git</a>
+                            </CellDisplayTemplate>
+                        </DxGridDataColumn>
+                    </Columns>
+                </DxGrid>
+            </div>
+        }
+    </BodyTextTemplate>
+</DxWindow>
+
+
+@code {
+    private List<SearchLog> SearchLogs;
+    private List<SearchResult> SelectedResults;
+    private SearchLog SelectedLog;
+    private bool IsPopupVisible = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrEmpty(userId))
+        {
+            using var context = DbFactory.CreateDbContext();
+            // Sadece bu kullanıcıya ait aramaları getir
+            SearchLogs = await context.SearchLogs
+                .Where(l => l.UserId == userId)
+                .OrderByDescending(l => l.SearchDate)
+                .ToListAsync();
+        }
+    }
+
+    private async Task ShowDetail(SearchLog log)
+    {
+        SelectedLog = log;
+        using var context = DbFactory.CreateDbContext();
+        
+        // Bu aramaya ait sonuçları getir
+        SelectedResults = await context.SearchResults
+            .Where(s => s.SearchLogId == log.Id)
+            .ToListAsync();
+
+        IsPopupVisible = true;
+    }
+    private async Task ToggleAutoSearch(SearchLog log, bool value)
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        var dbLog = await context.SearchLogs.FindAsync(log.Id);
+        if (dbLog != null)
+        {
+            dbLog.OtomatikSorgula = value;
+            await context.SaveChangesAsync();
+            log.OtomatikSorgula = value; // UI'ı güncelle
+        }
+    }
+}

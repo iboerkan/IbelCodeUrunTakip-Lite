@@ -1,0 +1,246 @@
+﻿@page "/FiyatAnaliz"
+@attribute [Authorize(Roles = "Admin, Eticaret")]
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@attribute [Authorize]
+
+<div class="container-fluid p-4">
+    <h3 class="mb-4"><i class="bi bi-graph-up text-primary"></i> Fiyat Analiz Merkezi</h3>
+
+    <div class="row">
+        @* SOL TARAF: Ürün Listesi *@
+        <div class="col-md-5">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-white fw-bold">Takip Edilen Ürünler</div>
+                <div class="card-body p-0">
+                    <DxGrid Data="@UrunHavuzu"
+                            @bind-SelectedDataItem="@SelectedProduct"
+                            PageSize="15"
+                            ShowFilterRow="true"
+                            SelectionMode="GridSelectionMode.Single"
+                            AllowSelectRowByClick="true"
+                            CssClass="w-100">
+                        <Columns>
+                            <DxGridDataColumn FieldName="Title" Caption="Ürün Adı" />
+                            <DxGridDataColumn FieldName="StoreName" Caption="Mağaza" Width="120px" />
+                            <DxGridDataColumn FieldName="LastPrice" Caption="Son Fiyat" DisplayFormat="c2" Width="100px" />
+
+                        </Columns>
+                    </DxGrid>
+                </div>
+            </div>
+        </div>
+
+        @* SAĞ TARAF: Fiyat Değişim Grafiği *@
+        <div class="col-md-7">
+            <div class="card shadow-sm" style="min-height: 500px;">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <span class="fw-bold">Fiyat Değişim Grafiği</span>
+                    @if (SelectedProduct != null)
+                    {
+                        <span class="badge bg-primary">@((SelectedProduct as Product).Title)</span>
+                    }
+                </div>
+                <div class="card-body">
+                    <div class="row g-2 mb-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="small fw-bold">Başlangıç Tarihi</label>
+                            <DxDateEdit @bind-Date="@StartDate" Format="dd.MM.yyyy" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small fw-bold">Bitiş Tarihi</label>
+                            <DxDateEdit @bind-Date="@EndDate" Format="dd.MM.yyyy" />
+                        </div>
+                        <div class="col-md-4">
+                            <DxButton Text="Uygula"
+                                      RenderStyle="ButtonRenderStyle.Secondary"
+                                      IconCssClass="bi bi-filter"
+                                      Click="@(() => OnProductSelected(SelectedProduct as Product))"
+                                      CssClass="w-100" />
+                        </div>
+                    </div>
+                    @if (_isLoadingChart)
+                    {
+                        <div class="text-center mt-5">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p>Veri Analizi Yapılıyor...</p>
+                        </div>
+                    }
+                    else if (FiyatGecmisi != null && FiyatGecmisi.Any())
+                    {
+                        @* Grafik sadece veri varken görünmeli *@
+                        <DxChart Data="@FiyatGecmisi" Width="100%" Height="400px">
+                            <DxChartLineSeries T="FiyatNoktasi" TArgument="string" TValue="decimal"
+                                               ArgumentField="@(s => s.Tarih)"
+                                               ValueField="@(s => s.Fiyat)"
+                                               Name="Fiyat Trendi" />
+                            @* ... diğer chart ayarları ... *@
+                        </DxChart>
+                    }
+                    else if (SelectedProduct != null)
+                    {
+                        <div class="alert alert-warning">Bu ürün için henüz geçmiş fiyat kaydı bulunamadı.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    @if (FiyatGecmisi != null && FiyatGecmisi.Any())
+    {
+        <div class="row g-3 mb-4">
+            @* EN DÜŞÜK FİYAT *@
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-success border-4">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">En Düşük Fiyat</h6>
+                        <h4 class="fw-bold text-success mb-0">@MinFiyat.ToString("c2")</h4>
+                        <small class="text-muted">Seçili aralıkta</small>
+                    </div>
+                </div>
+            </div>
+
+            @* EN YÜKSEK FİYAT *@
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-danger border-4">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">En Yüksek Fiyat</h6>
+                        <h4 class="fw-bold text-danger mb-0">@MaxFiyat.ToString("c2")</h4>
+                        <small class="text-muted">Seçili aralıkta</small>
+                    </div>
+                </div>
+            </div>
+
+            @* ORTALAMA FİYAT *@
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-info border-4">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">Ortalama Fiyat</h6>
+                        <h4 class="fw-bold text-info mb-0">@OrtalamaFiyat.ToString("c2")</h4>
+                        <small class="text-muted">Aritmetik ortalama</small>
+                    </div>
+                </div>
+            </div>
+
+            @* FİYAT DEĞİŞİMİ *@
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 border-start border-primary border-4">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">Fiyat Değişimi</h6>
+                        <h4 class="fw-bold @YuzdeRenkClass mb-0">
+                            @(DegisimYuzdesi > 0 ? "+" : "")@DegisimYuzdesi.ToString("N2")%
+                            <i class="bi @(DegisimYuzdesi > 0 ? "bi-caret-up-fill" : "bi-caret-down-fill")"></i>
+                        </h4>
+                        <small class="text-muted">İlk ve son kayıt arası</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Product> UrunHavuzu;
+    private object _selectedProduct;
+    private List<FiyatNoktasi> FiyatGecmisi;
+
+    // Seçilen ürünü yakalayan property
+    private object SelectedProduct
+    {
+        get => _selectedProduct;
+        set
+        {
+            if (_selectedProduct != value)
+            {
+                _selectedProduct = value;
+                _ = OnProductSelected(value as Product);
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var context = DbFactory.CreateDbContext();
+        UrunHavuzu = await context.Products.OrderByDescending(p => p.LastUpdated).ToListAsync();
+    }
+
+    private bool _isLoadingChart = false; // Çakışmaları önlemek için kilit
+
+    private async Task OnProductSelected(Product product)
+    {
+        if (product == null || _isLoadingChart) return;
+
+        try
+        {
+            _isLoadingChart = true;
+            await InvokeAsync(StateHasChanged);
+
+            using var context = DbFactory.CreateDbContext();
+
+            // Tarih filtresini de içeren sorgu
+            var rawData = await context.SearchResults
+                .Include(s => s.SearchLog)
+                .Where(s => s.ProductTitle == product.Title &&
+                            s.StoreName == product.StoreName &&
+                            s.SearchLog.SearchDate >= StartDate && // Başlangıç Filtresi
+                            s.SearchLog.SearchDate <= EndDate)     // Bitiş Filtresi
+                .AsNoTracking()
+                .ToListAsync();
+
+            FiyatGecmisi = rawData
+                .OrderBy(s => s.SearchLog.SearchDate)
+                .Select(s => new FiyatNoktasi
+                {
+                    // Grafikte çok kalabalık olmaması için saat bilgisini opsiyonel yapabilirsiniz
+                    Tarih = s.SearchLog.SearchDate.ToString("dd.MM.yyyy HH:mm"),
+                    Fiyat = s.PriceValue
+                })
+                .ToList();
+            if (FiyatGecmisi.Any())
+            {
+                // 1. Temel İstatistikler
+                MinFiyat = FiyatGecmisi.Min(x => x.Fiyat);
+                MaxFiyat = FiyatGecmisi.Max(x => x.Fiyat);
+                OrtalamaFiyat = FiyatGecmisi.Average(x => x.Fiyat);
+
+                // 2. Yüzdesel Değişim Hesaplama
+                decimal ilkFiyat = FiyatGecmisi.First().Fiyat;
+                decimal sonFiyat = FiyatGecmisi.Last().Fiyat;
+
+                if (ilkFiyat > 0)
+                {
+                    DegisimYuzdesi = (double)((sonFiyat - ilkFiyat) / ilkFiyat) * 100;
+
+                    // Renk sınıfını belirle
+                    if (DegisimYuzdesi > 0) YuzdeRenkClass = "text-danger"; // Artış varsa kırmızı (kötü)
+                    else if (DegisimYuzdesi < 0) YuzdeRenkClass = "text-success"; // Düşüş varsa yeşil (iyi)
+                    else YuzdeRenkClass = "text-dark";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Filtreleme Hatası: {ex.Message}");
+        }
+        finally
+        {
+            _isLoadingChart = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+    private DateTime StartDate { get; set; } = DateTime.Now.AddDays(-30);
+    private DateTime EndDate { get; set; } = DateTime.Now;
+    private decimal MinFiyat;
+    private decimal MaxFiyat;
+    private decimal OrtalamaFiyat;
+    private double DegisimYuzdesi;
+    private string YuzdeRenkClass = "text-dark";
+    // Grafik için küçük yardımcı model
+    public class FiyatNoktasi
+    {
+        public string Tarih { get; set; }
+        public decimal Fiyat { get; set; }
+    }
+}

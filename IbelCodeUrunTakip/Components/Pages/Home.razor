@@ -1,0 +1,352 @@
+﻿@page "/"
+@attribute [Authorize(Roles = "Admin,BT,User")]
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IDisposable
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@attribute [Authorize]
+@inject IJSRuntime JS
+<div class="container-fluid p-4">
+    @if (!_isLoaded)
+    {
+        @* Bu süreçte hiçbir DevExpress bileşeni render edilmez, hata riski sıfıra iner *@
+        <div class="d-flex flex-column justify-content-center align-items-center" style="height: 70vh;">
+            <div class="spinner-border text-primary" role="status"></div>
+            <h5 class="mt-3 text-muted">Dashboard Hazırlanıyor...</h5>
+        </div>
+    }
+    else
+    {
+        @* HOŞ GELDİNİZ *@
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h2 class="fw-bold">Hoş Geldin, @UserName! 👋</h2>
+            </div>
+        </div>
+
+        @* KPI KARTLARI *@
+   
+
+        <AuthorizeView Roles="Admin, eticaret">
+            <Authorized>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <div class="card shadow-sm border-0 bg-primary text-white p-3">
+                            <small>Toplam Ürün</small>
+                            <h3 class="fw-bold mb-0">@TotalProducts</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card shadow-sm border-0 bg-success text-white p-3">
+                            <small>Aramaların</small>
+                            <h3 class="fw-bold mb-0">@UserTotalSearches</h3>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card shadow-sm border-0 bg-warning text-dark p-3">
+                            <small>Mağaza Sayısı</small>
+                            <h3 class="fw-bold mb-0">@TotalStores</h3>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="card shadow-sm border-0 mb-4 bg-gradient-dark text-white" style="background: linear-gradient(45deg, #1a1a1a, #434343);">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <h6 class="text-uppercase mb-2 opacity-75">Sıradaki Otomatik Güncelleme</h6>
+                                <h3 class="fw-bold mb-0">
+                                    <i class="bi bi-hourglass-split me-2 text-warning"></i>
+                                    @CountdownText
+                                </h3>
+                            </div>
+                            <div class="text-end">
+                                <div class="small opacity-75">Planlanan Saat</div>
+                                <div class="fw-bold fs-5 text-warning">@ScheduledTimeStr</div>
+                            </div>
+                        </div>
+
+                        @* İlerleme Çubuğu (Görsel Destek) *@
+                        <div class="progress mt-3" style="height: 6px; background: rgba(255,255,255,0.1);">
+                            <div class="progress-bar bg-warning" role="progressbar" style="width: @(ProgressPercentage)%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-7">
+                        <div class="card shadow-sm border-0">
+                            <div class="card-header bg-white fw-bold">Son Aramaların</div>
+                            <div class="card-body p-0">
+                                @if (RecentSearches != null && RecentSearches.Any())
+                                {
+                                    <DxGrid Data="@RecentSearches" PageSize="5">
+                                        <Columns>
+                                            <DxGridDataColumn FieldName="SearchDate" Caption="Tarih" DisplayFormat="g" />
+                                            <DxGridDataColumn FieldName="SearchTerm" Caption="Aranan" />
+                                        </Columns>
+                                    </DxGrid>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    @* POPÜLER ARAMALAR LİSTESİ *@
+                    <div class="col-md-5">
+                        <div class="card shadow-sm border-0 h-100">
+                            <div class="card-header bg-white py-3">
+                                <h5 class="mb-0 fw-bold text-primary">
+                                    <i class="bi bi-fire me-2 text-danger"></i>En Çok Arananlar
+                                </h5>
+                            </div>
+                            <div class="card-body p-0">
+                                @if (PopularSearches != null && PopularSearches.Any())
+                                {
+                                    <ul class="list-group list-group-flush">
+                                        @foreach (var item in PopularSearches)
+                                        {
+                                            <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+                                                <div class="d-flex align-items-center">
+                                                    <div class="rounded-circle bg-light p-2 me-3 text-primary">
+                                                        <i class="bi bi-search"></i>
+                                                    </div>
+                                                    <span class="fw-bold">@item.Term</span>
+                                                </div>
+                                                <span class="badge bg-primary rounded-pill">@item.Count Arama</span>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                                else
+                                {
+                                    <div class="text-center p-5 text-muted">
+                                        <i class="bi bi-info-circle d-block fs-2 mb-2"></i>
+                                        Henüz popüler bir arama verisi yok.
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+
+            </NotAuthorized>
+        </AuthorizeView>
+        <AuthorizeView Roles="Admin, User,BT">
+            <Authorized>
+
+            </Authorized>
+            <NotAuthorized>
+
+      
+            </NotAuthorized>
+        </AuthorizeView>
+    }
+</div>
+
+@code {
+    private bool _isLoaded = false;
+    private bool _isDisposed = false;
+    private string UserName = "Kullanıcı";
+    private int TotalProducts, UserTotalSearches, TotalStores, PriceDroppedCount;
+    private List<SearchLog> RecentSearches = new();
+    private List<TopSearchModel> PopularSearches = new();
+    private Dictionary<string, int> departmentStats = new();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Mini bir gecikme ekleyerek Dispatcher'ın tam oturmasını bekleyelim
+            await Task.Delay(50); 
+            await LoadDashboardData();
+
+
+        }
+        if (_isLoaded) // Veriler veritabanından çekildiyse
+        {
+            await RenderCharts();
+        }
+    }
+
+    private async Task LoadDashboardData()
+    {
+        if (_isDisposed) return;
+
+        try
+        {
+            Console.WriteLine("DASHBOARD: Veri yükleme başladı..."); // Debug Log
+
+            using var context = await DbFactory.CreateDbContextAsync();
+
+            // 1. Sayaçlar (Hızlı işlemler)
+
+
+            Console.WriteLine("DASHBOARD: Sayaçlar yüklendi."); // Debug Log
+
+            // 2. Auth Durumu
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState?.User;
+
+            if (user?.Identity != null && user.Identity.IsAuthenticated)
+            {
+                UserName = user.Identity.Name?.Split('@')[0] ?? "Kullanıcı";
+                var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    RecentSearches = await context.SearchLogs
+                        .Where(l => l.UserId == userId)
+                        .OrderByDescending(l => l.SearchDate).Take(5).ToListAsync();
+                }
+
+                TotalProducts = await context.Products.AsNoTracking().CountAsync();
+                TotalStores = await context.Products.AsNoTracking().Select(p => p.StoreName).Distinct().CountAsync();
+                UserTotalSearches = await context.SearchLogs.AsNoTracking().CountAsync(l => l.UserId == userId);
+                RecentSearches = await context.SearchLogs.AsNoTracking()
+                    .Where(l => l.UserId == userId)
+                    .OrderByDescending(l => l.SearchDate).Take(5).ToListAsync();
+
+            }
+
+            // 3. Popüler Aramalar
+            PopularSearches = await context.SearchLogs
+    .Where(l => !string.IsNullOrEmpty(l.SearchTerm)) // Boş olmayanları al
+    .GroupBy(l => l.SearchTerm)
+    .Select(g => new TopSearchModel
+    {
+        Term = g.Key,
+        Count = g.Count()
+    })
+    .OrderByDescending(x => x.Count)
+    .Take(5)
+    .ToListAsync();
+
+            if (PopularSearches == null) PopularSearches = new();
+
+            Console.WriteLine("DASHBOARD: Tüm veriler çekildi."); // Debug Log
+        }
+        catch (Exception ex)
+        {
+            // Hatayı yutma, console'a yazdır ki ne olduğunu görelim
+            Console.WriteLine($"DASHBOARD HATASI: {ex.Message}");
+        }
+        finally
+        {
+            // NE OLURSA OLSUN (Hata çıksa da çıkmasa da) yükleme ekranını kapat
+            _isLoaded = true;
+
+            if (!_isDisposed)
+            {
+                await InvokeAsync(StateHasChanged);
+                Console.WriteLine("DASHBOARD: Arayüz güncellendi."); // Debug Log
+            }
+        }
+    }
+
+
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+        _timer?.Dispose();
+    }
+
+    public class TopSearchModel { public string Term { get; set; } public int Count { get; set; } }
+
+    private string CountdownText = "Hesaplanıyor...";
+    private string ScheduledTimeStr = "--:--";
+    private double ProgressPercentage = 0;
+    private System.Threading.Timer? _timer;
+    private TimeSpan _targetTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadScheduledTime();
+        // Saniyede bir güncelleme yapacak timer'ı başlat
+        _timer = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(UpdateCountdown);
+        }, null, 0, 10000);
+    }
+
+    private async Task LoadScheduledTime()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        var setting = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ServiceExecutionTime");
+
+        if (setting != null && TimeSpan.TryParse(setting.SettingValue, out var time))
+        {
+            _targetTime = time;
+            ScheduledTimeStr = setting.SettingValue;
+        }
+        else
+        {
+            _targetTime = new TimeSpan(3, 0, 0); // Varsayılan 03:00
+            ScheduledTimeStr = "03:00";
+        }
+    }
+
+    private void UpdateCountdown()
+    {
+        var now = DateTime.Now;
+        var targetToday = now.Date.Add(_targetTime);
+
+        // Eğer hedef saat bugün geçtiyse, hedefi yarına kur
+        if (now > targetToday)
+        {
+            targetToday = targetToday.AddDays(1);
+        }
+
+        var diff = targetToday - now;
+
+        // Metni formatla
+        CountdownText = $"{(int)diff.TotalHours:D2}s {diff.Minutes:D2}dk {diff.Seconds:D2}sn";
+
+        // İlerleme çubuğu hesaplama (24 saatlik döngü üzerinden)
+        ProgressPercentage = 100 - (diff.TotalSeconds / (24 * 3600) * 100);
+
+        StateHasChanged();
+    }
+
+    private DashboardStats stats = new();
+
+    private class DashboardStats
+    {
+        public int Total { get; set; }
+        public int Open { get; set; }
+        public int Pending { get; set; }
+        public int InProgress { get; set; }
+        public int Resolved { get; set; }
+        public int Overdue { get; set; }
+    }
+
+  
+
+    
+    private async Task RenderCharts()
+    {
+        // 1. Pasta Grafiği (Mevcut)
+        var pieLabels = new[] { "Açık", "Beklemede", "İşlemde", "Çözüldü", "Geciken" };
+        var pieData = new[] { stats.Open, stats.Pending, stats.InProgress, stats.Resolved, stats.Overdue };
+        if (stats.Total > 0)
+        {
+            await JS.InvokeVoidAsync("renderPieChart", "ticketPieChart", pieLabels, pieData);
+        }
+
+        // 2. YENİ: Bar Grafiği (Departmanlar)
+        if (departmentStats.Any())
+        {
+            // Sözlükteki anahtarları (Departman Adları) ve değerleri (Sayılar) diziye çevir
+            var barLabels = departmentStats.Keys.ToArray();
+            var barData = departmentStats.Values.ToArray();
+            await JS.InvokeVoidAsync("renderBarChart", "departmentBarChart", barLabels, barData);
+        }
+    }
+}

@@ -1,0 +1,289 @@
+﻿@using IbelCode.Core.Models
+@using IbelCode.Data
+@using IbelCodeUrunTakip.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Identity
+@using System.Security.Claims
+@using Microsoft.EntityFrameworkCore
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IServiceScopeFactory ScopeFactory
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserManager<ApplicationUser> UserManager
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@implements IDisposable
+
+<style>
+    .dxbs-treeview .dxbs-prev-level {
+        margin-left: 1.5rem;
+        border-left: 1px solid #dee2e6;
+    }
+
+    .nav-menu-items {
+        /* Menü uzadığında scroll çıkmasını sağlar */
+        overflow-y: auto;
+        /* Footer'ın yüksekliği kadar (örneğin 150px) alttan itme yapar */
+        padding-bottom: 150px;
+        /* Menünün kalan boşluğu doldurmasını sağlar */
+        flex: 1;
+    }
+
+    /* Footer'ın her zaman en üstte kalmasını engellemek için z-index ayarı */
+    .nav-user-footer {
+        position: relative;
+        z-index: 20;
+        background-color: #YOUR_BACKGROUND_COLOR; /* Arka plan rengi verin ki menü alttan görünmesin */
+    }
+
+    .dxbs-treeview {
+        position: relative;
+        z-index: 50; /* Footer'dan daha yüksek bir değer olmalı */
+    }
+
+    .nav-flex-column {
+        display: flex;
+        flex-direction: column;
+        height: 100vh; /* Ekran boyu kadar yükseklik */
+        overflow: hidden; /* Dışarı taşmayı engelle */
+    }
+
+    .nav-menu-items {
+        flex-grow: 1; /* Ortadaki boşluğu bu doldursun */
+        overflow-y: auto; /* Sadece burası kaydırılsın */
+    }
+
+    .nav-user-footer {
+        flex-shrink: 0; /* Footer asla büzüşmesin */
+    }
+</style>
+<div class="nav-flex-column">
+    @* --- ÜST KISIM: LOGO --- *@
+    <div class="nav-logo" style="background-color:cornflowerblue">
+        <img src="images/Logo.png" alt="Logo" />
+    </div>
+
+    @* --- ORTA KISIM: MENÜ --- *@
+    <div class="nav-menu-items">
+        <DxTreeView AllowSelectNodes="true" AnimationType="LayoutAnimationType.Slide">
+            <Nodes>
+                <DxTreeViewNode NavigateUrl="/" Text="Dashboard" IconCssClass="bi bi-house-door" Visible="@(isAdmin || isEtic || isYetkisiz)" />
+                <DxTreeViewNode NavigateUrl="/UrunTakip" Text="Ürün Takip" IconCssClass="bi bi-box" Visible="@(isAdmin || isEtic)" />
+                <DxTreeViewNode NavigateUrl="/AramaGecmisi" Text="Arama Geçmişi" IconCssClass="bi bi-clock-history" Visible="@(isAdmin || isEtic)" />
+
+                <DxTreeViewNode NavigateUrl="/FiyatAnaliz" Text="Fiyat Analiz" IconCssClass="bi bi-graph-up-arrow" Visible="@(isAdmin || isEtic)" />
+                <DxTreeViewNode NavigateUrl="/oto-takip-yonetimi" Text="Oto Takip Ayarları" IconCssClass="bi bi-rocket-takeoff" Visible="@(isAdmin || isEtic)" />
+                <DxTreeViewNode NavigateUrl="/shopify-urunler" Text="Shopify Ürünler" IconCssClass="bi bi bi-box" Visible="@(isAdmin || isShopify)" />
+                <DxTreeViewNode NavigateUrl="/update-history" Text="Shopify Güncelleme Geçmişi" IconCssClass="bi bi-hourglass" Visible="@(isAdmin || isShopify)" />
+
+
+                <DxTreeViewNode Text="Sistem İşlemleri" IconCssClass="bi bi-gear-wide-connected" Visible="@(isAdmin || isBT)">
+                    <Nodes>
+                        <DxTreeViewNode NavigateUrl="/kullanici-yonetimi" Text="Kullanıcı Yönetimi" IconCssClass="bi bi-people-fill" />
+                    </Nodes>
+                </DxTreeViewNode>
+
+                <DxTreeViewNode NavigateUrl="/Hakkimizda" Text="Hakkımızda" IconCssClass="bi bi-info-circle-fill" Visible="@(isAdmin)" />
+                <DxTreeViewNode NavigateUrl="/ayarlar" Text="Ayarlar" IconCssClass="bi bi-sliders" Visible="@(isAdmin)" />
+            </Nodes>
+        </DxTreeView>
+    </div>
+
+    @* --- ALT KISIM: KULLANICI BİLGİLERİ --- *@
+    <div class="nav-user-footer">
+        <AuthorizeView Context="auth">
+            <Authorized>
+                @* Bildirim İkonu *@
+                <div class="d-flex align-items-center justify-content-between mb-3 px-3">
+                    <a href="/ticket-listesi?filter=unread" class="text-white position-relative text-decoration-none">
+                        <i class="bi bi-envelope-fill fs-4"></i>
+                        @if (unreadMessageCount > 0)
+                        {
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">
+                                @unreadMessageCount
+                                <span class="visually-hidden">Okunmamış Mesaj</span>
+                            </span>
+                        }
+                    </a>
+                    <small class="text-white-50">Bildirimler</small>
+                </div>
+                <div class="user-card mb-2">
+                    <i class="bi bi-person-circle"></i>
+                    <div class="user-text">
+                        <span class="welcome">Hoş geldin,</span>
+                        <span class="mail">@auth.User.Identity?.Name</span>
+                    </div>
+                </div>
+
+                <div class="user-actions">
+                    @* 1. Şifre Değiştir Bağlantısı *@
+                    <div class="nav-item px-3 py-1">
+                        <NavLink class="nav-link text-white p-0 border-0 d-flex align-items-center" href="sifre-guncelle">
+                            <i class="bi bi-shield-lock me-2"></i>
+                            <span class="small">Şifre Değiştir</span>
+                        </NavLink>
+                    </div>
+
+                    @* 2. Çıkış Yap Formu *@
+                    <div class="nav-item px-3 py-1">
+                        <form action="Account/Logout" method="post">
+                            <AntiforgeryToken />
+                            <input type="hidden" name="returnUrl" value="/Account/Login" />
+                            <button type="submit" class="nav-link btn btn-link w-100 text-start text-danger border-0">
+                                <i class="bi bi-box-arrow-right me-2"></i> Çıkış Yap
+                            </button>
+                        </form>
+                    </div>
+
+                   
+                </div>
+
+
+
+            </Authorized>
+        </AuthorizeView>
+    </div>
+</div>
+@code {
+    private bool isAdmin;
+    private bool isShopify;
+    private bool isEtic;
+    private bool isYetkisiz;
+    private bool isBT;
+    private bool isUser;
+    private bool isPlanlama;
+    private bool isPazarlama;
+    private int unreadMessageCount = 0;
+    private string? currentUserId;
+    private bool isStaff;
+    private CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userPrincipal = authState.User;
+
+        if (userPrincipal.Identity is { IsAuthenticated: true })
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.GetUserAsync(userPrincipal);
+
+            if (user != null)
+            {
+                currentUserId = user.Id;
+
+                // Roller
+                isAdmin = await userManager.IsInRoleAsync(user, "Admin");
+                isShopify = await userManager.IsInRoleAsync(user, "Shopify");
+                isEtic = await userManager.IsInRoleAsync(user, "Eticaret");
+                isBT = await userManager.IsInRoleAsync(user, "BT");
+                isYetkisiz = await userManager.IsInRoleAsync(user, "User");
+                isPlanlama = await userManager.IsInRoleAsync(user, "Planlama");
+                isPazarlama = await userManager.IsInRoleAsync(user, "Pazarlama") || await userManager.IsInRoleAsync(user, "PazarlamaYoneticisi");
+
+                if (isShopify || isEtic || isBT ||isPlanlama) isYetkisiz = true;
+
+                isStaff = isAdmin || await userManager.IsInRoleAsync(user, "BT");
+                
+                // İlk yüklemede sayıları getir
+                await CalculateUnreadMessages();
+
+                // Arka plan zamanlayıcısını başlat (Sadece bir kez tetiklenir)
+                _ = StartBadgeTimer();
+            }
+        }
+
+        await CalculateUnreadMessages();
+        _ = StartBadgeTimer();
+    }
+    private async void HandleMessageRead(string targetUserId)
+    {
+        // Eğer haber benim ID'm için gelmişse veya ben Admin/BT isem (her durumda güncelle)
+        // Sadece hedef kullanıcıyı güncellemek performans için kritiktir
+        if (currentUserId == targetUserId)
+        {
+            /* await InvokeAsync(async () =>
+            {
+
+
+                await Task.Delay(300); // DB'nin tam yazılması için kısa bir mola
+                await CalculateUnreadMessages();
+                StateHasChanged();
+                });*/
+
+                        await InvokeAsync(async () =>
+            {
+                await CalculateUnreadMessages();
+                // Sadece InvokeAsync yetmeyebilir, render döngüsünü kontrol edelim
+                try
+                {
+                    StateHasChanged();
+                }
+                catch (Exception)
+                {
+                    // Bileşen dispose olmuşsa hatayı yut, logları kirletmesin
+                }
+            });
+        }
+    }
+
+    private async Task StartBadgeTimer()
+    {
+        // Modern .NET 6+ zamanlayıcısı
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            // İptal edilene kadar (sayfadan çıkana kadar) döner
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                await InvokeAsync(async () =>
+                {
+                    await CalculateUnreadMessages();
+                    StateHasChanged(); // Sadece menüyü sessizce yeniler
+                });
+            }
+        }
+        catch (OperationCanceledException) { /* Timer durduruldu */ }
+    }
+    private System.Threading.Timer? badgeTimer;
+
+
+
+    private async Task StartMessageCounterTimer()
+    {
+        // Modern .NET PeriodicTimer (Thread-safe ve performanslı)
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                // UI dışı bir thread'den geldiğimiz için InvokeAsync şart
+                await InvokeAsync(async () =>
+                {
+                    await CalculateUnreadMessages();
+                    StateHasChanged(); // Sadece NavMenu'deki sayıyı yeniler, tüm sayfayı değil
+                });
+            }
+        }
+        catch (OperationCanceledException) { /* Sayfa kapandı */ }
+    }
+
+    private async Task CalculateUnreadMessages()
+    {
+        if (string.IsNullOrEmpty(currentUserId)) return;
+
+        using var context = DbFactory.CreateDbContext();
+        unreadMessageCount = 0;
+       
+    }
+
+
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+
+    }
+}

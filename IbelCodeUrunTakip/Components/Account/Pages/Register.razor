@@ -1,0 +1,136 @@
+﻿@page "/Account/Register"
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using IbelCodeUrunTakip.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.WebUtilities
+@using System.Text
+@layout AuthLayout
+@attribute [AllowAnonymous]
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager NavigationManager
+@inject IEmailSender<ApplicationUser> MailServisi
+
+<EditForm Model="Input" OnValidSubmit="RegisterUser" FormName="register" method="post">
+    <DataAnnotationsValidator />
+    @if (ErrorMessages.Any())
+    {
+        <div class="alert alert-danger shadow-sm">
+            <ul class="mb-0">
+                @foreach (var error in ErrorMessages)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+    }
+    @* AD VE SOYAD (Yan yana şık dursun diye row/col kullandım) *@
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label>Ad</label>
+            <InputText @bind-Value="Input.FirstName" class="form-control" placeholder="Adınız" />
+            <ValidationMessage For="() => Input.FirstName" class="text-danger" />
+        </div>
+        <div class="col-md-6 mb-3">
+            <label>Soyad</label>
+            <InputText @bind-Value="Input.LastName" class="form-control" placeholder="Soyadınız" />
+            <ValidationMessage For="() => Input.LastName" class="text-danger" />
+        </div>
+    </div>
+
+    @* FİRMA ADI *@
+    <div class="mb-3">
+        <label>Firma Adı</label>
+        <InputText @bind-Value="Input.CompanyName" class="form-control" placeholder="Şirketinizin Adı" />
+        <ValidationMessage For="() => Input.CompanyName" class="text-danger" />
+    </div>
+
+    @* E-POSTA *@
+    <div class="mb-3">
+        <label>E-posta</label>
+        <InputText @bind-Value="Input.Email" class="form-control" />
+        <ValidationMessage For="() => Input.Email" class="text-danger" />
+    </div>
+
+    @* ŞİFRE ALANLARI *@
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label>Şifre</label>
+            <InputText @bind-Value="Input.Password" type="password" class="form-control" />
+        </div>
+        <div class="col-md-6 mb-3">
+            <label>Şifre Tekrar</label>
+            <InputText @bind-Value="Input.ConfirmPassword" type="password" class="form-control" />
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary w-100 py-2 shadow-sm">Kayıt Ol ve Giriş Yap</button>
+</EditForm>
+
+@code {
+    [SupplyParameterFromForm]
+    public InputModel Input { get; set; } = new();
+
+    private List<string> ErrorMessages { get; set; } = new();
+
+   
+
+    public async Task RegisterUser()
+    {
+        ErrorMessages.Clear();
+        var user = new ApplicationUser { UserName = Input.Email, Email = Input.Email, FirstName = Input.FirstName, LastName = Input.LastName, CompanyName = Input.CompanyName };
+        var result = await UserManager.CreateAsync(user, Input.Password);
+
+        if (result.Succeeded)
+        {
+            // 1. Onay Token'ı üret
+            var userId = await UserManager.GetUserIdAsync(user);
+            var code = await UserManager.GenerateEmailConfirmationTokenAsync(user);
+            code = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(code));
+
+            // 2. Onay Linkini Oluştur
+            var callbackUrl = NavigationManager.GetUriWithQueryParameters(
+                NavigationManager.ToAbsoluteUri("Account/ConfirmEmail").AbsoluteUri,
+                new Dictionary<string, object?> { ["userId"] = userId, ["code"] = code });
+
+            // 3. Maili Gönder
+            await MailServisi.SendConfirmationLinkAsync(user, Input.Email, callbackUrl);
+
+            // 4. Kullanıcıyı Bilgilendirme Sayfasına Yönlendir
+            //NavigationManager.NavigateTo("Account/RegisterConfirmation");
+            NavigationManager.NavigateTo($"/Account/RegisterConfirmation?EmailAddress={Input.Email}");
+        }
+        else
+        {
+            foreach (var error in result.Errors) { ErrorMessages.Add(error.Description); }
+        }
+    }
+    public class InputModel
+    {
+        [Required(ErrorMessage = "Ad alanı zorunludur")]
+        public string FirstName { get; set; } = "";
+
+        [Required(ErrorMessage = "Soyad alanı zorunludur")]
+        public string LastName { get; set; } = "";
+
+
+        public string CompanyName { get; set; } = "";
+
+        [Required(ErrorMessage = "E-posta gereklidir")]
+        [EmailAddress(ErrorMessage = "Geçerli bir e-posta giriniz")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Şifre gereklidir")]
+        [StringLength(100, ErrorMessage = "{0} en az {2} karakter olmalıdır.", MinimumLength = 6)]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [DataType(DataType.Password)]
+        [Display(Name = "Şifre Tekrar")]
+        [Compare("Password", ErrorMessage = "Şifreler eşleşmiyor.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

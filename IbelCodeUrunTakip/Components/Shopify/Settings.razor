@@ -1,0 +1,441 @@
+﻿@page "/ayarlar"
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using IbelCode.Service
+@using IbelCodeUrunTakip.Services
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.DependencyInjection
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@inject IServiceProvider ServiceProvider
+@attribute [Authorize]
+
+<div class="container p-4">
+    <h3 class="mb-4 fw-bold text-dark"><i class="bi bi-gear-fill me-2"></i>Sistem Ayarları</h3>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-key me-2"></i>SerpApi Yapılandırması</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold d-flex justify-content-between">
+                            API Anahtarı
+                            @if (!string.IsNullOrEmpty(SerpApiKey))
+                            {
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                    <i class="bi bi-check2-circle"></i> Veritabanında Kayıtlı
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle">
+                                    <i class="bi bi-exclamation-triangle"></i> Kayıt Bulunamadı
+                                </span>
+                            }
+                        </label>
+
+                        <div class="input-group">
+                            <DxTextBox @bind-Text="@SerpApiKey"
+                                       Password="@(!IsVisible)"
+                                       NullText="Henüz bir anahtar kaydedilmemiş..."
+                                       CssClass="flex-grow-1" />
+
+                            <DxButton IconCssClass="@(IsVisible ? "bi bi-eye-slash" : "bi bi-eye")"
+                                      Click="@(() => IsVisible = !IsVisible)"
+                                      RenderStyle="ButtonRenderStyle.Light" />
+                        </div>
+                        <small class="text-muted mt-2 d-block">Google Shopping verilerini çekmek için gereklidir.</small>
+                    </div>
+
+                    <div class="text-end">
+                        <DxButton Text="Anahtarı Kaydet"
+                                  Click="@SaveSettings"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  IconCssClass="bi bi-save"
+                                  Enabled="@(!IsSaving)" />
+                    </div>
+
+                    @if (_showSuccess)
+                    {
+                        <div class="alert alert-success mt-3 py-2 border-0 shadow-sm animate__animated animate__fadeIn">
+                            <i class="bi bi-check-circle-fill me-2"></i> Ayarlar başarıyla güncellendi.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-secondary"><i class="bi bi-cpu me-2"></i>Otomatik Servis Kontrolü</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        "Otomatik Sorgula" işareti aktif olan ürünlerin fiyatları her gün taranır.
+                        Aşağıdaki buton ile bu işlemi şu an manuel olarak başlatabilirsiniz.
+                    </p>
+
+                    <div class="mb-3 mt-4 text-center">
+                        <DxButton Text="@(IsRunning ? "İşlem Yapılıyor..." : "Arka Plan Servisini Şimdi Başlat")"
+                                  Click="@TriggerWorkerManually"
+                                  RenderStyle="ButtonRenderStyle.Secondary"
+                                  IconCssClass="@(IsRunning ? "spinner-border spinner-border-sm" : "bi bi-play-circle")"
+                                  Enabled="@(!IsRunning)"
+                                  CssClass="w-100 py-2" />
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(WorkerStatusMessage))
+                    {
+                        <div class="alert @(WorkerStatusMessage.Contains("Hata") ? "alert-danger" : "alert-info") mt-3 py-2 border-0 shadow-sm animate__animated animate__fadeIn">
+                            <i class="bi @(WorkerStatusMessage.Contains("Hata") ? "bi-x-circle" : "bi-info-circle") me-2"></i>
+                            @WorkerStatusMessage
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-warning"><i class="bi bi-clock-history me-2"></i>Otomatik Sorgu Zamanlaması</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        Sistemin her gün hangi saatte otomatik tarama yapacağını belirleyin.
+                        (Önerilen: Trafiğin az olduğu gece saatleri)
+                    </p>
+
+                    <div class="mb-4 mt-3">
+                        <label class="form-label fw-bold">Çalışma Saati</label>
+                        <DxTimeEdit @bind-Time="@ScheduledTime"
+                                    Format="HH:mm"
+                                    Mask="@DateTimeMask.ShortTime"
+                                    CssClass="w-100" />
+                    </div>
+
+                    <div class="text-end">
+                        <DxButton Text="Zamanlamayı Kaydet"
+                                  Click="@SaveTimeSettings"
+                                  RenderStyle="ButtonRenderStyle.Warning"
+                                  IconCssClass="bi bi-alarm"
+                                  Enabled="@(!IsSavingTime)" />
+                    </div>
+
+                    @if (_showTimeSuccess)
+                    {
+                        <div class="alert alert-warning mt-3 py-2 border-0 shadow-sm animate__animated animate__fadeIn">
+                            <i class="bi bi-check-circle-fill me-2"></i> Çalışma saati güncellendi.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-primary"><i class="bi bi-bag-check"></i>Shopify Yapılandırması</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold d-flex justify-content-between">
+                            Shopify URL
+                        </label>
+
+                        <div class="input-group">
+                            <DxTextBox @bind-Text="@ShopifyUrl"
+                                       NullText="Henüz bir URL kaydedilmemiş..."
+                                       CssClass="flex-grow-1" />
+
+                        </div>
+                        <small class="text-muted mt-2 d-block">Shopify verilerini çekmek için gereklidir.</small>
+                    </div>
+
+                    @*location id*@
+                    <div class="mb-3">
+                        <label class="form-label fw-bold d-flex justify-content-between">
+                            Shopify Location ID
+                        </label>
+
+                        <div class="input-group">
+                            <DxTextBox @bind-Text="@ShopifyLocationId"
+                                       NullText="Henüz bir Location Id kaydedilmemiş..."
+                                       CssClass="flex-grow-1" />
+
+                        </div>
+                        <small class="text-muted mt-2 d-block">Shopify verilerini çekmek için gereklidir.</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold d-flex justify-content-between">
+                            Access Token
+                            @if (!string.IsNullOrEmpty(ShopifyAccessToken))
+                            {
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                    <i class="bi bi-check2-circle"></i> Veritabanında Kayıtlı
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle">
+                                    <i class="bi bi-exclamation-triangle"></i> Kayıt Bulunamadı
+                                </span>
+                            }
+                        </label>
+
+                        <div class="input-group">
+                            <DxTextBox @bind-Text="@ShopifyAccessToken"
+                                       NullText="Henüz bir Access Token kaydedilmemiş..."
+                                       CssClass="flex-grow-1" />
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <DxButton Text="Shopify Ayarlarını Kaydet"
+                                  Click="@SaveSettings"
+                                  RenderStyle="ButtonRenderStyle.Primary"
+                                  IconCssClass="bi bi-save"
+                                  Enabled="@(!IsSaving)" />
+                    </div>
+
+                    @if (_showSuccess)
+                    {
+                        <div class="alert alert-success mt-3 py-2 border-0 shadow-sm animate__animated animate__fadeIn">
+                            <i class="bi bi-check-circle-fill me-2"></i> Ayarlar başarıyla güncellendi.
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-list-task me-2 text-primary"></i>Son Servis Hareketleri (Loglar)</h5>
+            <DxButton Text="Yenile" Click="@LoadLogs" RenderStyle="ButtonRenderStyle.Light" SizeMode="SizeMode.Small" IconCssClass="bi bi-arrow-clockwise" />
+        </div>
+        <div class="card-body p-0">
+            <DxGrid Data="@LatestLogs" ShowSearchBox="false" PageSize="5" PagerNavigationMode="PagerNavigationMode.InputBox">
+                <Columns>
+                    <DxGridDataColumn FieldName="LastRunDate" Caption="Tarih" DisplayFormat="G" Width="180px" />
+                    <DxGridDataColumn FieldName="Status" Caption="Durum" Width="120px">
+                        <CellDisplayTemplate>
+                            @{
+                                var status = context.Value.ToString();
+                                <span class="badge @(status == "Başarılı" ? "bg-success" : (status == "Hata" ? "bg-danger" : "bg-warning text-dark"))">@status</span>
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+                    <DxGridDataColumn FieldName="Message" Caption="Detay / Mesaj" />
+                </Columns>
+            </DxGrid>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string SerpApiKey = "";
+    private bool IsVisible = false;
+    private bool IsSaving = false;
+    private bool _showSuccess = false;
+
+    // Servis Değişkenleri
+    private bool IsRunning = false;
+    private string WorkerStatusMessage = "";
+    private List<ServiceLog> LatestLogs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsFromDb();
+        await LoadLogs();
+    }
+
+
+
+    private async Task LoadLogs()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        LatestLogs = await context.ServiceLogs
+                            .OrderByDescending(x => x.LastRunDate)
+                            .Take(10)
+                            .ToListAsync();
+    }
+
+    private async Task SaveSettings()
+    {
+        if (string.IsNullOrWhiteSpace(SerpApiKey)) return;
+
+        IsSaving = true;
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var setting = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "SerpApiKey");
+
+            if (setting == null)
+            {
+                context.AppSettings.Add(new AppSetting { SettingKey = "SerpApiKey", SettingValue = SerpApiKey });
+            }
+            else
+            {
+                setting.SettingValue = SerpApiKey;
+                setting.LastUpdated = DateTime.Now;
+            }
+
+
+
+            var shopifyUrl = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ShopifyUrl");
+
+            if (shopifyUrl == null)
+            {
+                context.AppSettings.Add(new AppSetting { SettingKey = "ShopifyUrl", SettingValue = ShopifyUrl });
+            }
+            else
+            {
+                shopifyUrl.SettingValue = ShopifyUrl;
+                shopifyUrl.LastUpdated = DateTime.Now;
+            }
+
+            var shopifyAccessToken = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ShopifyAccessToken");
+            if (shopifyAccessToken == null)
+            {
+                context.AppSettings.Add(new AppSetting { SettingKey = "ShopifyAccessToken", SettingValue = ShopifyAccessToken });
+            }
+            else
+            {
+                shopifyAccessToken.SettingValue = ShopifyAccessToken;
+                shopifyAccessToken.LastUpdated = DateTime.Now;
+            }
+
+            var shopifyLocationId = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ShopifyLocationId");
+            if (shopifyLocationId == null)
+            {
+                context.AppSettings.Add(new AppSetting { SettingKey = "ShopifyLocationId", SettingValue = ShopifyLocationId });
+            }
+            else
+            {
+                shopifyLocationId.SettingValue = ShopifyLocationId;
+                shopifyLocationId.LastUpdated = DateTime.Now;
+            }
+
+            await context.SaveChangesAsync();
+            _showSuccess = true;
+            _ = Task.Delay(3000).ContinueWith(_ => { _showSuccess = false; InvokeAsync(StateHasChanged); });
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private async Task TriggerWorkerManually()
+    {
+        IsRunning = true;
+        WorkerStatusMessage = "Servis başlatıldı, lütfen bekleyiniz...";
+        StateHasChanged();
+
+        try
+        {
+            using (var scope = ServiceProvider.CreateScope())
+            {
+                var searchService = scope.ServiceProvider.GetRequiredService<SearchService>();
+
+                // Arka plan işlemini başlat
+                await searchService.UpdateAllLoggedSearches();
+
+                WorkerStatusMessage = "İşlem başarıyla tamamlandı.";
+            }
+        }
+        catch (Exception ex)
+        {
+            WorkerStatusMessage = $"Hata: {ex.Message}";
+        }
+        finally
+        {
+            IsRunning = false;
+            await LoadLogs(); // Yeni oluşan logları çek
+            StateHasChanged();
+        }
+    }
+
+    // Yeni değişkenler
+    private DateTime ScheduledTime { get; set; } = DateTime.Today.AddHours(3); // Varsayılan 03:00
+    private bool IsSavingTime = false;
+    private bool _showTimeSuccess = false;
+    private string ShopifyUrl{ get; set; }
+    private string ShopifyAccessToken{ get; set; }
+    private string ShopifyLocationId { get; set; }
+
+    // LoadSettingsFromDb metodunu güncelleyelim
+    private async Task LoadSettingsFromDb()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+
+        // API Key Yükle
+        var apiSetting = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "SerpApiKey");
+        if (apiSetting != null) SerpApiKey = apiSetting.SettingValue;
+
+        // Çalışma Saatini Yükle
+        var timeSetting = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ServiceExecutionTime");
+        if (timeSetting != null && DateTime.TryParse(timeSetting.SettingValue, out var parsedTime))
+        {
+            ScheduledTime = parsedTime;
+        }
+
+        //shopify url
+        var shopifyUrl = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ShopifyUrl");
+        if (shopifyUrl != null) ShopifyUrl = shopifyUrl.SettingValue;
+
+        //shopify access token
+        var shopifyToken = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ShopifyAccessToken");
+        if (shopifyToken != null) ShopifyAccessToken = shopifyToken.SettingValue;
+
+        //shopify location id
+        var shopifyLocation = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ShopifyLocationId");
+        if (shopifyLocation != null) ShopifyLocationId = shopifyLocation.SettingValue;
+
+
+    }
+
+    // Yeni kaydetme metodu
+    private async Task SaveTimeSettings()
+    {
+        IsSavingTime = true;
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var setting = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "ServiceExecutionTime");
+
+            string timeValue = ScheduledTime.ToString("HH:mm");
+
+            if (setting == null)
+            {
+                context.AppSettings.Add(new AppSetting
+                {
+                    SettingKey = "ServiceExecutionTime",
+                    SettingValue = timeValue,
+                    LastUpdated = DateTime.Now
+                });
+            }
+            else
+            {
+                setting.SettingValue = timeValue;
+                setting.LastUpdated = DateTime.Now;
+            }
+
+            await context.SaveChangesAsync();
+            _showTimeSuccess = true;
+            _ = Task.Delay(3000).ContinueWith(_ => { _showTimeSuccess = false; InvokeAsync(StateHasChanged); });
+        }
+        finally
+        {
+            IsSavingTime = false;
+        }
+    }
+}

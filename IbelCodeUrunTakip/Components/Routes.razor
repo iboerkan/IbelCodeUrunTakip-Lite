@@ -1,0 +1,16 @@
+﻿<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(Program).Assembly">
+        <Found Context="routeData">
+            @* BURASI: RouteView yerine AuthorizeRouteView olmalı *@
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <p>Bu sayfayı görmeye yetkiniz yok.</p>
+                </NotAuthorized>
+                <Authorizing>
+                    <p>Yetki kontrol ediliyor...</p>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>

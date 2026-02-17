@@ -1,0 +1,211 @@
+﻿@using Microsoft.AspNetCore.Mvc.ViewFeatures
+@using IbelCodeUrunTakip.Services
+@using Microsoft.AspNetCore.Components.Web
+@inject IFileVersionProvider FileVersionProvider
+@inject DxThemesService ThemesService
+
+
+
+
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="@(ThemesService.IsBootstrapDarkActive ? "dark" : null)" data-fluent-darkmode="@(ThemesService.IsFluentDarkModeActive ? "" : null)">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+
+    @* DevExpress v25.1 için bu ikili yeterlidir, manuel script eklemeyin *@
+    @DxResourceManager.RegisterTheme(ThemesService.ActiveTheme)
+    @DxResourceManager.RegisterScripts()
+
+    <link href="@AppendVersion("css/site.css")" rel="stylesheet" />
+    <link href="@AppendVersion("IbelCodeUrunTakip.styles.css")" rel="stylesheet" />
+    <link href="_content/DevExpress.Blazor.Themes/bootstrap-external.bs5.min.css" rel="stylesheet" />
+
+    @* KRİTİK DÜZELTME: Prerender kapalı olmalı *@
+    <HeadOutlet @rendermode="InteractiveAppMode" />
+
+    <DxResourceManager />
+</head>
+<body class="@(ThemesService.IsFluentActive ? "dxbl-theme-fluent" : null)">
+
+    @* KRİTİK DÜZELTME: Prerender kapalı olmalı *@
+   
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+
+    @* Diğer kütüphanelerin (Chart.js vb.) kalsın *@
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script type="text/javascript">
+        window.downloadFileFromStream = async (fileName, contentStreamReference) => {
+            const arrayBuffer = await contentStreamReference.arrayBuffer();
+            const blob = new Blob([arrayBuffer]);
+            const url = URL.createObjectURL(blob);
+            const anchorElement = document.createElement('a');
+            anchorElement.href = url;
+            anchorElement.download = fileName ?? '';
+            anchorElement.click();
+            anchorElement.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        Chart.register(ChartDataLabels);
+
+        // --- PASTA GRAFİĞİ GÜNCELLEME ---
+        window.renderPieChart = (canvasId, dataLabels, dataValues) => {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return; // Hata önleyici kontrol
+
+            const context = ctx.getContext('2d');
+
+            if (window.myChartPie) {
+                window.myChartPie.data.labels = dataLabels;
+                window.myChartPie.data.datasets[0].data = dataValues;
+                window.myChartPie.update('none');
+                return;
+            }
+
+            window.myChartPie = new Chart(context, {
+                type: 'pie',
+                data: {
+                    labels: dataLabels,
+                    datasets: [{
+                        data: dataValues,
+                        backgroundColor: ['#0d6efd', '#ffc107', '#6c757d', '#198754', '#dc3545'],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' },
+                        datalabels: {
+                            color: '#fff',
+                            font: { weight: 'bold', size: 12 },
+                            formatter: (value, ctx) => {
+                                let sum = 0;
+                                let dataArr = ctx.chart.data.datasets[0].data;
+                                dataArr.map(data => { sum += data; });
+                                let percentage = (value * 100 / sum).toFixed(1) + "%";
+                                return value > 0 ? value + '\n(' + percentage + ')' : '';
+                            }
+                        }
+                    }
+                }
+            });
+        };
+
+        // --- BAR GRAFİĞİ GÜNCELLEME ---
+        window.renderBarChart = (canvasId, dataLabels, dataValues) => {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+
+            const context = ctx.getContext('2d');
+
+            if (window.myChartBar) {
+                window.myChartBar.data.labels = dataLabels;
+                window.myChartBar.data.datasets[0].data = dataValues;
+                window.myChartBar.update('none');
+                return;
+            }
+
+            window.myChartBar = new Chart(context, {
+                type: 'bar',
+                data: {
+                    labels: dataLabels,
+                    datasets: [{
+                        label: 'Talep Sayısı',
+                        data: dataValues,
+                        backgroundColor: 'rgba(54, 162, 235, 0.7)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } },
+                    plugins: {
+                        legend: { display: false },
+                        datalabels: { anchor: 'end', align: 'top', color: '#666' }
+                    }
+                }
+            });
+        };
+
+        window.initializePasteHandler = (dotNetHelper) => {
+            window.addEventListener('paste', async (e) => {
+                const items = e.clipboardData.items;
+                for (let i = 0; i < items.length; i++) {
+                    if (items[i].type.indexOf('image') !== -1) {
+                        const blob = items[i].getAsFile();
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            dotNetHelper.invokeMethodAsync('ProcessPastedImage', event.target.result);
+                        };
+                        reader.readAsDataURL(blob);
+                    }
+                }
+            });
+        };
+                window.downloadPdf = async (elementId, fileName) => {
+            const doc = new jspdf.jsPDF('p', 'pt', 'a4');
+            const element = document.getElementById(elementId);
+            const canvas = await html2canvas(element, { scale: 2 });
+            const imgData = canvas.toDataURL('image/png');
+            const imgProps = doc.getImageProperties(imgData);
+            const pdfWidth = doc.internal.pageSize.getWidth();
+            const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            doc.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            doc.save(fileName);
+        };
+
+                window.initColumnSortable = (dotNetHelper) => {
+            const el = document.getElementById('kanban-columns-container');
+
+            if (el) {
+                console.log("Sortable bağlandı: kanban-columns-container bulundu.");
+
+                new Sortable(el, {
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    handle: '.column-header-move', // Sadece başlıktan tutunca sürüklenir
+                    draggable: '.kanban-col',      // Sadece bu sınıfa sahip elementler sürüklenir
+                    onEnd: function (evt) {
+                        const itemIds = Array.from(el.children)
+                            .filter(child => child.hasAttribute('data-id'))
+                            .map(child => child.getAttribute('data-id'));
+
+                        dotNetHelper.invokeMethodAsync('UpdateColumnOrder', itemIds);
+                    }
+                });
+            } else {
+                console.error("Hata: kanban-columns-container bulunamadı!");
+            }
+        };
+
+        window.toggleSidebar = () => {
+            const wrapper = document.querySelector('.page-wrapper');
+            wrapper.classList.toggle('collapsed');
+        }
+
+                         
+    </script>
+
+</body>
+</html>
+
+@code {
+    // Prerender: false diyerek "ObjectReference" hatasını kökten siliyoruz.
+    // Çünkü JS hazır olmadan C# kodunun çalışmasına izin vermeyecek.
+    private static readonly IComponentRenderMode InteractiveAppMode =
+        new InteractiveServerRenderMode(prerender: false);
+
+    private string AppendVersion(string path) => FileVersionProvider.AddFileVersionToPath("/", path);
+}
+
+
+
+

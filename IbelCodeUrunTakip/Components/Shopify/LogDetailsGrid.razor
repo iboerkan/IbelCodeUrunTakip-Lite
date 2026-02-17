@@ -1,0 +1,42 @@
+﻿@using IbelCode.Core.Interfaces
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using IbelCodeUrunTakip.Services
+@inject ILogService LogService
+
+@if (Logs == null)
+{
+    <div class="d-flex align-items-center p-3">
+        <div class="spinner-border spinner-border-sm me-2 text-primary"></div>
+        <span>Loglar getiriliyor...</span>
+    </div>
+}
+else if (!Logs.Any())
+{
+    <div class="alert alert-warning m-2">
+        Bu seansa ait herhangi bir log kaydı bulunamadı. (Seans ID: @SessionId)
+    </div>
+}
+else
+{
+    <DxGrid Data="@Logs" PageSize="5">
+        <Columns>
+            <DxGridDataColumn FieldName="LogTime" Caption="Zaman" DisplayFormat="HH:mm:ss" Width="100px" />
+            <DxGridDataColumn FieldName="LogType" Caption="Tip" Width="100px" />
+            <DxGridDataColumn FieldName="SKU" Caption="SKU" Width="120px" />
+            <DxGridDataColumn FieldName="Message" Caption="Mesaj" />
+        </Columns>
+    </DxGrid>
+}
+
+@code {
+    [Parameter] public int SessionId { get; set; }
+    private List<TransferLog>? Logs; // Başlangıçta null
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Debug için: Console.WriteLine($"SessionId: {SessionId} için loglar çekiliyor...");
+        Logs = await LogService.GetLogsBySessionIdAsync(SessionId);
+        StateHasChanged(); // Veri geldiğinde arayüzü zorla yenile
+    }
+}

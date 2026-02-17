@@ -1,0 +1,157 @@
+﻿@inherits LayoutComponentBase
+@using DevExpress.Blazor
+@using IbelCode.Core.Models
+@using IbelCodeUrunTakip.Services
+@inject ToastService ToastService
+@using IbelCodeUrunTakip.Components.Shared
+@inject IbelCode.Service.LogService LogService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IHttpContextAccessor HttpAccessor
+@inject ProjectSettings ProjectSettings
+<ToastWrapper />
+
+<div class="page-container">
+    @* SIDEBAR: id ve class isimleri JS ile uyumlu *@
+    <aside id="sidebar-area" class="sidebar-wrapper">
+        <NavMenu />
+    </aside>
+
+    @* ANA İÇERİK: flex-1 ile tüm boşluğu doldurur *@
+    <main class="main-layout">
+        <header class="top-navbar">
+            @* Buton en solda duracak *@
+            <button class="toggle-btn" onclick="toggleMenu()" type="button">
+                <i class="bi bi-list"></i>
+            </button>
+            
+            <span class="project-name">@ProjectSettings.Title</span>
+
+            <div class="user-area">
+                <LoginDisplay />
+            </div>
+        </header>
+
+        <section class="content-scroll">
+            <div class="p-4">
+                @Body
+            </div>
+        </section>
+    </main>
+</div>
+
+@* JS: Sidebari daraltıp açar *@
+<script>
+    function toggleMenu() {
+        var sidebar = document.getElementById('sidebar-area');
+        if (sidebar) {
+            sidebar.classList.toggle('collapsed');
+        }
+    }
+</script>
+
+<style>
+    /* 1. EKRAN YERLEŞİMİ */
+    .page-container {
+        display: flex; /* Sidebar ve Main'i yan yana diz */
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    /* 2. SIDEBAR AYARLARI */
+    .sidebar-wrapper {
+        width: 280px; /* Görseldeki genişlik */
+        background-color: #2b3e50;
+        flex-shrink: 0;
+        transition: width 0.3s ease, margin-left 0.3s ease;
+        z-index: 1001;
+    }
+
+    /* Sidebar Kapandığında (Masaüstü) */
+    .sidebar-wrapper.collapsed {
+        width: 0;
+        overflow: hidden;
+    }
+
+    /* 3. ANA İÇERİK (HEADER + BODY) */
+    .main-layout {
+        flex: 1; /* EKRANIN GERİ KALANINI TAMAMEN DOLDURUR */
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        background-color: #ffffff;
+    }
+
+    /* 4. ÜST BAR (Görseldeki kutuyu tam genişlik yapar) */
+    .top-navbar {
+        height: 60px;
+        width: 100%; /* Tüm genişliğe yayılmasını sağlar */
+        background-color: #1a252f;
+        display: flex;
+        align-items: center;
+        padding: 0 1.5rem;
+        color: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .toggle-btn {
+        background: transparent;
+        border: none;
+        color: white;
+        font-size: 1.8rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        margin-right: 1rem;
+    }
+
+    .project-name {
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
+
+    .user-area {
+        margin-left: auto; /* Login bilgilerini en sağa iter */
+    }
+
+    /* 5. İÇERİK KAYDIRMA */
+    .content-scroll {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    /* 6. MOBİL AYARLAR */
+    @@media (max-width: 768px) {
+        .sidebar-wrapper {
+            position: fixed;
+            top: 60px;
+            left: 0;
+            height: calc(100vh - 60px);
+            width: 100%;
+            transform: translateX(-100%);
+        }
+
+        .sidebar-wrapper:not(.collapsed) {
+            transform: translateX(0);
+        }
+    }
+</style>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            var context = HttpAccessor.HttpContext;
+            if (context != null)
+            {
+                string ipAddress = context.Connection?.RemoteIpAddress?.ToString() ?? "::1";
+                string browserInfo = context.Request.Headers["User-Agent"].ToString() ?? "Bilinmiyor";
+                await LogService.GirisLoglaAsync(user.Identity.Name, ipAddress, browserInfo);
+            }
+        }
+    }
+}

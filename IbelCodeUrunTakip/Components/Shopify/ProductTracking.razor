@@ -1,0 +1,552 @@
+﻿@page "/UrunTakip"
+@attribute [Authorize(Roles = "Admin, Eticaret")]
+@using IbelCode.Core.Models
+@using IbelCode.Service
+@using Microsoft.EntityFrameworkCore
+@using Newtonsoft.Json.Linq
+@using System.Net.Http
+@inject HttpClient Http
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+
+@using IbelCode.Data
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+
+@attribute [Authorize]
+<div class="container-fluid p-4">
+    @* Arama Paneli *@
+    <div class="card shadow-sm mb-3 border-0 bg-white">
+    <div class="card-body py-2 d-flex align-items-center gap-3">
+        <div style="flex-grow: 1;">
+                <DxComboBox Data="@SavedFilterGroups"
+                            TData="FilterGroup"
+                            TValue="FilterGroup"
+                            TextFieldName="@nameof(FilterGroup.GroupName)"
+                            NullText="Kayıtlı Bir Filtre Grubu Seçin..."
+                            SelectedItemChanged="@((FilterGroup group) => ApplyFilterGroup(group))"
+                            ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        </div>
+
+            <DxButton Text="Şu anki Filtreleri Kaydet"
+                      IconCssClass="bi bi-save"
+                      Click="@SaveCurrentFilters"
+                      RenderStyle="ButtonRenderStyle.Secondary" />
+    </div>
+</div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold">Aranacak Ürün</label>
+                    <DxTextBox @bind-Text="@SearchText" NullText="Örn: BIG 912 D PRO DI2..." />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-danger">Hariç Tutulacaklar (Virgül ile ayırın)</label>
+                    <DxTextBox @bind-Text="@ExcludeText" NullText="2912, mekanik..." />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold text-success">Sadece Bunları İçersin (Opsiyonel)</label>
+                    <DxTextBox @bind-Text="@IncludeText" NullText="karbon, m-size..." ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+                </div>
+                <div class="col-md-4 d-flex gap-2">
+                    <DxButton Text="Aramayı Başlat"
+                              Click="@OnSearchClick"
+                              RenderStyle="ButtonRenderStyle.Primary"
+                              Enabled="@(!IsLoading)"
+                              IconCssClass="dxbl-image dxbl-image-search" />
+
+                    @if (IsLoading)
+                    {
+                        <div class="spinner-border text-primary" role="status"></div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Sonuç Grid'i *@
+    <DxGrid Data="@FinalListe"
+            ShowGroupPanel="true"
+            ShowFilterRow="true"
+            PageSize="20"
+            PagerPosition="GridPagerPosition.Bottom"
+            CssClass="w-100 shadow-sm">
+        <Columns>
+            <DxGridDataColumn FieldName="AnaUrunAdi" Caption="Ürün Başlığı" Width="30%" />
+            <DxGridDataColumn FieldName="SaticiAdi" Caption="Mağaza" />
+            <DxGridDataColumn FieldName="Fiyat" Caption="Fiyat" DisplayFormat="c2" />
+            <DxGridDataColumn FieldName="OrtalamTutar" Caption="Fiyat Aralığı" />
+            <DxGridDataColumn FieldName="Kaynak" Caption="Veri Kaynağı" />
+            <DxGridDataColumn FieldName="Link" Caption="Link">
+                <CellDisplayTemplate>
+                    <a href="@context.Value" target="_blank" class="btn btn-sm btn-link">Mağazaya Git</a>
+                </CellDisplayTemplate>
+            </DxGridDataColumn>
+        </Columns>
+    </DxGrid>
+
+    @* FİLTRE KAYDETME PENCERESİ *@
+    <DxWindow @bind-Visible="@IsSaveWindowVisible"
+              HeaderTitle="Filtre Şablonunu Kaydet"
+              Width="450px"
+              CloseOnEscape="true"
+              ShowCloseButton="true"
+              HeaderCssClass="bg-primary text-white shadow-sm">
+        <BodyTextTemplate>
+            <div class="p-3">
+                @* Giriş Alanı *@
+                <div class="mb-8">
+                    <label class="form-label fw-bold">Şablon İsmi</label>
+                    <DxTextBox @bind-Text="@NewFilterGroupName"
+                               NullText="Örn: Bisiklet Filtresi..."
+                               ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+
+                    @if (string.IsNullOrEmpty(NewFilterGroupName) && _attemptedSave)
+                    {
+                        <div class="text-danger small mt-3">
+                            <i class="bi bi-exclamation-triangle"></i> Lütfen bir isim giriniz!
+                        </div>
+                    }
+                </div>
+
+                @* Butonlar (Gövde İçine Alındı) *@
+                <div class="d-flex justify-content-end gap-2 border-top pt-3">
+                    <DxButton Text="Vazgeç"
+                              RenderStyle="ButtonRenderStyle.Light"
+                              Click="@(() => IsSaveWindowVisible = false)"
+                              CssClass="px-4" />
+                    <DxButton Text="Şablonu Kaydet"
+                              RenderStyle="ButtonRenderStyle.Success"
+                              Click="@ConfirmSaveFilter"
+                              IconCssClass="bi bi-check-lg"
+                              CssClass="px-4" />
+                </div>
+            </div>
+        </BodyTextTemplate>
+    </DxWindow>
+</div>
+
+@code {
+    private string SearchText { get; set; }
+    private string ExcludeText { get; set; } = "";
+    private string IncludeText { get; set; } = "";
+    private List<SaticiDetayModel> FinalListe { get; set; } = new();
+    private bool IsLoading { get; set; } = false;
+
+    /* private async Task OnSearchClick()
+     {
+         if (string.IsNullOrWhiteSpace(SearchText)) return;
+
+         IsLoading = true;
+         FinalListe.Clear(); // Yeni arama için listeyi temizle
+         await InvokeAsync(StateHasChanged);
+
+         try
+         {
+             await TumUrunleriVeAltSaticilariListele(SearchText, ExcludeText);
+    }
+         finally
+         {
+             IsLoading = false;
+             await InvokeAsync(StateHasChanged);
+         }
+     }*/
+    private async Task OnSearchClick()
+    {
+        if (string.IsNullOrWhiteSpace(SearchText)) return;
+
+        IsLoading = true;
+        FinalListe.Clear();
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+    // 1. Önce API'den verileri çekelim (Listeye dolduralım)
+    await TumUrunleriVeAltSaticilariListele(SearchText, ExcludeText,IncludeText);
+
+    // 2. Veriler geldiyse veritabanına topluca kaydedelim
+    if (FinalListe.Any())
+    {
+        await SaveSearchAndResultsToDatabase(SearchText, ExcludeText,IncludeText, FinalListe);
+    }
+        }
+        catch (Exception ex)
+        {
+    Console.WriteLine($"Hata: {ex.Message}");
+        }
+        finally
+        {
+    IsLoading = false;
+    await InvokeAsync(StateHasChanged);
+        }
+    }
+
+
+    private async Task SaveSearchToDatabase(string search, string exclude)
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity is not null && user.Identity.IsAuthenticated)
+        {
+    // Mevcut kullanıcının ID'sini al (ClaimTypes.NameIdentifier)
+    var userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+    if (!string.IsNullOrEmpty(userId))
+    {
+        using var context = DbFactory.CreateDbContext();
+        var log = new SearchLog
+                {
+                    UserId = userId,
+                    SearchTerm = search,
+                    ExcludedTerms = exclude,
+                    SearchDate = DateTime.Now
+                };
+
+        context.SearchLogs.Add(log);
+        await context.SaveChangesAsync();
+    }
+        }
+    }
+    private async Task SaveSearchAndResultsToDatabase(string search, string exclude, string dahilEdilenler, List<SaticiDetayModel> results)
+    {
+        try
+        {
+    var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+    var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userId)) return;
+
+    using var context = DbFactory.CreateDbContext();
+
+    // 1. Log Kaydı
+    var log = new SearchLog
+            {
+                UserId = userId,
+                SearchTerm = search,
+                ExcludedTerms = exclude,
+                IncludedTerms = dahilEdilenler,
+                SearchDate = DateTime.Now
+            };
+    context.SearchLogs.Add(log);
+    await context.SaveChangesAsync();
+
+    // 2. Havuzu Getir (AsNoTracking kullanarak çakışmaları önle)
+    var productPool = await context.Products.ToListAsync();
+
+    foreach (var r in results)
+    {
+        decimal currentDecimalPrice = ParsePriceToDecimal(r.Fiyat);
+        string rTitle = r.AnaUrunAdi?.Trim() ?? "Bilinmeyen Ürün";
+        string rStore = r.SaticiAdi?.Trim() ?? "Bilinmeyen Mağaza";
+
+        // Karakter sınırlarını kontrol et (SQL hatasını önlemek için)
+        if (rTitle.Length > 400) rTitle = rTitle.Substring(0, 400);
+
+        var existingProduct = productPool.FirstOrDefault(p =>
+            p.Title.Equals(rTitle, StringComparison.OrdinalIgnoreCase) &&
+            p.StoreName.Equals(rStore, StringComparison.OrdinalIgnoreCase));
+
+        if (existingProduct != null)
+        {
+            // Güncelleme (Context'e tekrar bağlayarak)
+            context.Attach(existingProduct);
+            existingProduct.LastPrice = currentDecimalPrice;
+            existingProduct.LastPriceString = r.Fiyat;
+            existingProduct.LastUpdated = DateTime.Now;
+            existingProduct.Url = r.Link;
+        }
+        else
+        {
+            // Yeni Kayıt
+            existingProduct = new Product
+                    {
+                        Title = rTitle,
+                        StoreName = rStore,
+                        Url = r.Link,
+                        LastPrice = currentDecimalPrice,
+                        LastPriceString = r.Fiyat,
+                        LastUpdated = DateTime.Now
+                    };
+            context.Products.Add(existingProduct);
+            productPool.Add(existingProduct);
+        }
+
+        // 3. SearchResult Kaydı
+        var searchResult = new SearchResult
+                {
+                    SearchLogId = log.Id,
+                    Product = existingProduct, // İlişkiyi burası kuruyor
+                    ProductTitle = rTitle,
+                    StoreName = rStore,
+                    Price = r.Fiyat ?? "0",
+                    PriceValue = currentDecimalPrice,
+                    Link = r.Link,
+                    Source = r.Kaynak ?? "Genel",
+                    PriceRange = r.OrtalamTutar ?? ""
+                };
+        context.SearchResults.Add(searchResult);
+    }
+
+    await context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+    // Circuit'in sonlanmaması için hatayı sadece loglayalım
+    var inner = ex.InnerException?.Message ?? ex.Message;
+    Console.WriteLine($"Kritik Kayıt Hatası: {inner}");
+        }
+    }
+
+    public async Task TumUrunleriVeAltSaticilariListele(string arananUrun, string haricTutulanlar, string dahilEdilenler)
+    {
+        string apiKey =await GetSerpApiKey();
+
+        // Filtre etiketlerini hazırla (Büyük harf ve boşluk temizliği)
+        var excludeTags = string.IsNullOrEmpty(haricTutulanlar)
+    ? new List<string>()
+    : haricTutulanlar.Split(',').Select(x => x.Trim().ToUpper()).ToList();
+
+        var includeTags = string.IsNullOrEmpty(dahilEdilenler)
+    ? new List<string>()
+    : dahilEdilenler.Split(',').Select(x => x.Trim().ToUpper()).ToList();
+
+        string searchUrl = $"https://serpapi.com/search.json?engine=google_shopping&q={Uri.EscapeDataString(arananUrun)}&api_key={apiKey}&gl=tr&hl=tr";
+
+        var response = await Http.GetStringAsync(searchUrl);
+        var searchData = JObject.Parse(response);
+        var mainResults = searchData["shopping_results"] as JArray;
+
+        if (mainResults == null) return;
+
+        foreach (var item in mainResults)
+        {
+    string urunBasligi = item["title"]?.ToString();
+    string immersiveToken = item["immersive_product_page_token"]?.ToString();
+
+    if (!string.IsNullOrEmpty(immersiveToken))
+    {
+        // --- DETAYLI SATICI SORGUSU (IMMERSIVE) ---
+        string detailUrl = $"https://serpapi.com/search.json?engine=google_immersive_product&page_token={immersiveToken}&api_key={apiKey}&gl=tr&hl=tr";
+        var detailRes = await Http.GetStringAsync(detailUrl);
+        var detailData = JObject.Parse(detailRes);
+        var productResults = detailData["product_results"];
+        var sellers = productResults?["stores"] as JArray;
+
+        if (sellers != null)
+        {
+            foreach (var s in sellers)
+            {
+                string saticiUrunBasligi = s["title"]?.ToString() ?? "";
+                string saticiUrunBasligiUpper = saticiUrunBasligi.ToUpper();
+
+                // Filtreleme Kontrolleri
+                bool satisfiesExclude = !excludeTags.Any(t => saticiUrunBasligiUpper.Contains(t));
+                bool satisfiesInclude = includeTags.Count == 0 || includeTags.Any(t => saticiUrunBasligiUpper.Contains(t));
+
+                if (satisfiesExclude && satisfiesInclude)
+                {
+                    FinalListe.Add(new SaticiDetayModel
+                            {
+                                OrtalamTutar = productResults["price_range"]?.ToString(),
+                                AnaUrunAdi = urunBasligi,
+                                SaticiAdi = s["name"]?.ToString(),
+                                Fiyat = s["price"]?.ToString(),
+                                Link = s["link"]?.ToString(),
+                                Kaynak = "Alt Satıcı"
+                            });
+                }
+            }
+        }
+    }
+    else
+    {
+        // --- TEKİL SONUÇ FİLTRELEME (DIRECT) ---
+        string titleUpper = urunBasligi?.ToUpper() ?? "";
+
+        // Filtreleme Kontrolleri
+        bool satisfiesExclude = !excludeTags.Any(t => titleUpper.Contains(t));
+        bool satisfiesInclude = includeTags.Count == 0 || includeTags.Any(t => titleUpper.Contains(t));
+
+        if (satisfiesExclude && satisfiesInclude)
+        {
+            FinalListe.Add(new SaticiDetayModel
+                    {
+                        AnaUrunAdi = urunBasligi,
+                        SaticiAdi = item["source"]?.ToString(),
+                        Fiyat = item["price"]?.ToString(),
+                        Link = item["link"]?.ToString(),
+                        Kaynak = "Ana Sonuç"
+                    });
+        }
+    }
+    await Task.Delay(200); // Rate limit koruması
+        }
+
+        FinalListe = FinalListe.OrderBy(q => q.AnaUrunAdi).ToList();
+    }
+    public decimal ParsePriceToDecimal(string priceText)
+    {
+        if (string.IsNullOrWhiteSpace(priceText)) return 0;
+
+        try
+        {
+    // 1. Rakamlar, virgül ve nokta dışındaki her şeyi temizle (₺, $, TL, vb.)
+    string cleanPrice = new string(priceText.Where(c => char.IsDigit(c) || c == ',' || c == '.').ToArray());
+
+    // 2. Eğer format "1.250,00" ise (Türkçe formatı):
+    // Binlik ayırıcı olan noktayı sil, kuruş ayırıcı olan virgülü noktaya çevir
+    if (cleanPrice.Contains(",") && cleanPrice.Contains("."))
+    {
+        cleanPrice = cleanPrice.Replace(".", "").Replace(",", ".");
+    }
+    // Eğer format sadece virgül içeriyorsa "1250,00" -> "1250.00"
+    else if (cleanPrice.Contains(","))
+    {
+        cleanPrice = cleanPrice.Replace(",", ".");
+    }
+
+    return decimal.TryParse(cleanPrice, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal result)
+           ? result
+           : 0;
+        }
+        catch
+        {
+    return 0;
+        }
+    }
+  
+
+    private List<FilterGroup> SavedFilterGroups = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+    await LoadFilterGroups();
+    }
+
+    private async Task LoadFilterGroups()
+    {
+        using var context = DbFactory.CreateDbContext();
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        SavedFilterGroups = await context.FilterGroups
+    .Where(x => x.UserId == userId)
+    .ToListAsync();
+    }
+
+    // Seçilen filtre grubunu kutucuklara doldurur
+    private void ApplyFilterGroup(FilterGroup group)
+    {
+        if (group != null)
+        {
+    ExcludeText = group.ExcludedTerms;
+    IncludeText = group.IncludedTerms;
+        }
+    }
+
+    // O an kutucuklarda yazanları yeni bir şablon olarak kaydeder
+
+
+    private bool IsSaveWindowVisible { get; set; } = false;
+    private string NewFilterGroupName { get; set; } = "";
+    private bool _attemptedSave = false;
+
+    // 1. "Şu anki Filtreleri Kaydet" butonu bu metodu tetiklemeli:
+    private void SaveCurrentFilters()
+    {
+        // Dinamik isim oluşturma
+        string generatedName = "";
+
+        // Hariç tutulanlar varsa ekle
+        if (!string.IsNullOrWhiteSpace(ExcludeText))
+        {
+    generatedName += $"Hariç Tutulacaklar: ({ExcludeText})";
+        }
+
+        // Dahil edilenler varsa ekle
+        if (!string.IsNullOrWhiteSpace(IncludeText))
+        {
+    // Eğer daha önce Hariç Tutulanlar eklenmişse araya bir ayraç koyalım
+    if (!string.IsNullOrEmpty(generatedName))
+        generatedName += " - ";
+
+    generatedName += $"Dahil Edilecekler: ({IncludeText})";
+        }
+
+        // Eğer her iki alan da boşsa varsayılan bir isim verelim
+        if (string.IsNullOrEmpty(generatedName))
+        {
+    generatedName = "Yeni Filtre Şablonu";
+        }
+
+        // Oluşturulan ismi TextBox'a ata
+        NewFilterGroupName = generatedName;
+
+        _attemptedSave = false;
+        IsSaveWindowVisible = true; // Popup'ı aç
+    }
+
+    // 2. Pencere içindeki "Kaydet" butonu burayı tetikler:
+    private async Task ConfirmSaveFilter()
+    {
+        _attemptedSave = true;
+
+        if (string.IsNullOrWhiteSpace(NewFilterGroupName))
+    return;
+
+        try
+        {
+    using var context = await DbFactory.CreateDbContextAsync();
+    var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+    var userId = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+    if (string.IsNullOrEmpty(userId)) return;
+
+    var newGroup = new FilterGroup
+            {
+                UserId = userId,
+                GroupName = NewFilterGroupName,
+                ExcludedTerms = ExcludeText,
+                IncludedTerms = IncludeText,
+                CreatedDate = DateTime.Now
+            };
+
+    context.FilterGroups.Add(newGroup);
+    await context.SaveChangesAsync();
+
+    // Temizlik ve Güncelleme
+    IsSaveWindowVisible = false;
+    await LoadFilterGroups(); // ComboBox listesini yenile
+    NewFilterGroupName = "";
+        }
+        catch (Exception ex)
+        {
+    Console.WriteLine($"Filtre Kayıt Hatası: {ex.Message}");
+        }
+    }
+
+    private async Task<string> GetSerpApiKey()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        var setting = await context.AppSettings.FirstOrDefaultAsync(s => s.SettingKey == "SerpApiKey");
+
+            // Veritabanında varsa onu dön, yoksa Properties'deki eski anahtarı dön
+            return setting.SettingValue;
+    }
+}
+<style>
+    /* DevExpress ikonlarının ve Bootstrap ikonlarının her yerde görünmesini garanti eder */
+    .dxbl-image {
+        display: inline-block !important;
+        background-repeat: no-repeat !important;
+        background-position: center !important;
+    }
+
+    /* Sayfa geçişlerinde ikonların yüklenmesini zorla */
+    .bi::before, [class^="bi-"]::before {
+        display: inline-block !important;
+        font-family: bootstrap-icons !important;
+    }
+</style>

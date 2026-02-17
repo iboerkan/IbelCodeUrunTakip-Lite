@@ -1,0 +1,20 @@
+﻿@using DevExpress.Blazor
+
+@inject IToastNotificationService DevExpressToast
+@rendermode InteractiveServer
+
+<div class="my-toast-layer">
+    <DxToastProvider />
+</div>
+
+
+
+@code {
+    private void TestEt()
+    {
+        DevExpressToast.ShowToast(new ToastOptions {
+            Text = "Wrapper içinden doğrudan tetiklendi!",
+            RenderStyle = ToastRenderStyle.Danger
+        });
+    }
+}

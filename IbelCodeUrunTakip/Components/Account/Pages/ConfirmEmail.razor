@@ -1,0 +1,41 @@
+﻿@page "/Account/ConfirmEmail"
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.WebUtilities
+@using System.Text
+
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+
+<h3>Hesap Onaylama</h3>
+<p>@statusMessage</p>
+
+@code {
+    [Parameter][SupplyParameterFromQuery] public string? userId { get; set; }
+    [Parameter][SupplyParameterFromQuery] public string? code { get; set; }
+    private string statusMessage = "Onaylanıyor...";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (userId == null || code == null)
+        {
+            NavigationManager.NavigateTo("/");
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(userId);
+        if (user == null)
+        {
+            statusMessage = "Hata: Kullanıcı bulunamadı.";
+            return;
+        }
+
+        var decodedCode = Encoding.UTF8.GetString(WebEncoders.Base64UrlDecode(code));
+        var result = await UserManager.ConfirmEmailAsync(user, decodedCode);
+
+        statusMessage = result.Succeeded
+            ? "Tebrikler! Hesabınız onaylandı. Artık giriş yapabilirsiniz."
+            : "Hata: Onay kodu geçersiz.";
+    }
+}

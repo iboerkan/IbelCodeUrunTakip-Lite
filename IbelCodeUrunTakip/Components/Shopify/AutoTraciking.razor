@@ -1,0 +1,187 @@
+﻿@page "/oto-takip-yonetimi"
+@attribute [Authorize(Roles = "Admin, Eticaret")]
+@rendermode InteractiveServer
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<ApplicationDbContext> DbFactory
+@attribute [Authorize]
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold text-dark"><i class="bi bi-eye-fill me-2 text-primary"></i>Otomatik Takip Merkezi</h3>
+            <p class="text-muted">Takibe aldığınız benzersiz arama gruplarını buradan yönetebilirsiniz.</p>
+        </div>
+        <DxButton Text="Listeyi Yenile" Click="@LoadData" RenderStyle="ButtonRenderStyle.Light" IconCssClass="bi bi-arrow-clockwise" />
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            @* PagerNavigationMode.InputBox yerine .Input kullanıldı ve tablo genişliği iyileştirildi *@
+            <DxGrid Data="@FollowedItems"
+                    ShowSearchBox="true"
+                    SearchBoxPlaceholder="Arama terimlerinde ara..."
+                    PageSize="15"
+                    PagerNavigationMode="PagerNavigationMode.InputBox"
+                    ColumnResizeMode="GridColumnResizeMode.NextColumn"
+                    TextWrapEnabled="false">
+                <Columns>
+                    <DxGridDataColumn FieldName="SearchTerm" Caption="Aranan Kelime" MinWidth="200" />
+
+                    <DxGridDataColumn FieldName="ExcludedTerms" Caption="Hariç Tutulanlar" MinWidth="150">
+                        <CellDisplayTemplate>
+                            @if (string.IsNullOrEmpty(context.Value?.ToString()))
+                            {
+                                <span class="text-muted">-</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger-subtle text-danger text-wrap">@context.Value</span>
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+
+                    <DxGridDataColumn FieldName="IncludedTerms" Caption="Dahil Edilenler" MinWidth="150">
+                        <CellDisplayTemplate>
+                            @if (string.IsNullOrEmpty(context.Value?.ToString()))
+                            {
+                                <span class="text-muted">-</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success-subtle text-success text-wrap">@context.Value</span>
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+
+                    @* FieldName'i kaldırıp sadece Template üzerinden gitmek bazen render sorunlarını çözer *@
+                    <DxGridDataColumn Caption="Oto Takip" Width="140px" TextAlignment="GridTextAlignment.Center">
+                        <CellDisplayTemplate Context="gridContext">
+                            @{
+                                var item = (SearchLog)gridContext.DataItem;
+                                <div class="d-flex align-items-center justify-content-center gap-2">
+                                    <DxCheckBox Checked="@item.OtomatikSorgula"
+                                                CheckedChanged="@((bool val) => ToggleAutoSearch(item, val))" />
+                                    <small class="@(item.OtomatikSorgula ? "text-success fw-bold" : "text-muted")">
+                                        @(item.OtomatikSorgula ? "Aktif" : "Pasif")
+                                    </small>
+                                </div>
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+
+                    <DxGridDataColumn Caption="İşlemler" Width="100px" TextAlignment="GridTextAlignment.Center">
+                        <CellDisplayTemplate Context="gridContext">
+                            @{
+                                var item = (SearchLog)gridContext.DataItem;
+                                <DxButton IconCssClass="bi bi-trash"
+                                          RenderStyle="ButtonRenderStyle.Danger"
+                                          RenderStyleMode="ButtonRenderStyleMode.Text"
+                                          Click="@(() => OpenDeleteDialog(item))"
+                                          Title="Takibi Sil" />
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridDataColumn>
+                </Columns>
+            </DxGrid>
+        </div>
+    </div>
+</div>
+
+@* SİLME ONAY PENCERESİ *@
+<DxWindow @bind-Visible="@IsDeletePopupVisible"
+          HeaderTitle="Silme Onayı"
+          Width="400px"
+          Modal="true"
+          CloseOnEscape="true"
+          HeaderCssClass="bg-danger text-white">
+    <BodyTextTemplate>
+        <div class="p-3">
+            <div class="d-flex align-items-center mb-3">
+                <i class="bi bi-exclamation-triangle-fill text-danger fs-2 me-3"></i>
+                <div>
+                    <h6 class="fw-bold mb-1">Emin misiniz?</h6>
+                    <p class="mb-0 text-muted small">
+                        <strong>"@ItemToDelete?.SearchTerm"</strong> aramasına ait tüm geçmiş kayıtlar silinecektir.
+                    </p>
+                </div>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                <DxButton Text="Vazgeç" Click="@(() => IsDeletePopupVisible = false)" RenderStyle="ButtonRenderStyle.Light" />
+                <DxButton Text="Evet, Sil" Click="@ConfirmDelete" RenderStyle="ButtonRenderStyle.Danger" />
+            </div>
+        </div>
+    </BodyTextTemplate>
+</DxWindow>
+
+@code {
+    private List<SearchLog> FollowedItems { get; set; } = new();
+    private bool IsDeletePopupVisible { get; set; } = false;
+    private SearchLog? ItemToDelete { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        FollowedItems = await context.SearchLogs
+            .GroupBy(x => new { x.SearchTerm, x.ExcludedTerms, x.IncludedTerms })
+            .Select(g => g.OrderByDescending(x => x.SearchDate).First())
+            .ToListAsync();
+    }
+
+    private async Task ToggleAutoSearch(SearchLog item, bool newValue)
+    {
+        using var context = await DbFactory.CreateDbContextAsync();
+        var relatedLogs = await context.SearchLogs
+            .Where(x => x.SearchTerm == item.SearchTerm &&
+                        x.ExcludedTerms == item.ExcludedTerms &&
+                        x.IncludedTerms == item.IncludedTerms)
+            .ToListAsync();
+
+        foreach (var log in relatedLogs)
+        {
+            log.OtomatikSorgula = newValue;
+        }
+
+        await context.SaveChangesAsync();
+        item.OtomatikSorgula = newValue;
+        StateHasChanged(); // UI'ı zorla güncelle
+    }
+
+    private void OpenDeleteDialog(SearchLog item)
+    {
+        ItemToDelete = item;
+        IsDeletePopupVisible = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (ItemToDelete == null) return;
+
+        try
+        {
+            using var context = await DbFactory.CreateDbContextAsync();
+            var logsToDelete = await context.SearchLogs
+                .Where(x => x.SearchTerm == ItemToDelete.SearchTerm &&
+                            x.ExcludedTerms == ItemToDelete.ExcludedTerms &&
+                            x.IncludedTerms == ItemToDelete.IncludedTerms)
+                .ToListAsync();
+
+            context.SearchLogs.RemoveRange(logsToDelete);
+            await context.SaveChangesAsync();
+
+            IsDeletePopupVisible = false;
+            ItemToDelete = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Silme hatası: {ex.Message}");
+        }
+    }
+}

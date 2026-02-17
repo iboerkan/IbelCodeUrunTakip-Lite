@@ -1,0 +1,119 @@
+﻿@page "/update-history"
+@attribute [Authorize(Roles = "Admin, Shopify")]
+@using IbelCode.Core.Interfaces
+@using IbelCode.Core.Models
+@using IbelCode.Data
+@using IbelCodeUrunTakip.Services
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@inject ILogService LogService
+@inject UserManager<ApplicationUser> UserManager
+@rendermode InteractiveServer
+<div class="container-fluid p-4">
+    <h3 class="mb-4"><i class="fas fa-history me-2"></i>Güncelleme Geçmişi</h3>
+    <div class="d-flex gap-2 align-items-end">
+        <div>
+            <label class="small fw-bold">Başlangıç Tarihi</label>
+            <DxDateEdit @bind-Date="@StartDate" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        </div>
+        <div>
+            <label class="small fw-bold">Bitiş Tarihi</label>
+            <DxDateEdit @bind-Date="@EndDate" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        </div>
+        <DxButton Text="Filtrele"
+                  Click="ApplyFilter"
+                  RenderStyle="ButtonRenderStyle.Primary"
+                  IconCssClass="fas fa-filter" />
+        <DxButton Text="Temizle"
+                  Click="ClearFilter"
+                  RenderStyle="ButtonRenderStyle.Secondary"
+                  IconCssClass="fas fa-undo" />
+    </div>
+    <DxGrid Data="@Sessions"
+            KeyFieldName="Id"
+            PageSize="10"
+            PagerPosition="GridPagerPosition.Bottom"
+            ShowSearchBox="true"
+            SearchBoxPlaceholder="Dosya adı veya kullanıcı ID ile ara..."
+            ColumnResizeMode="GridColumnResizeMode.NextColumn">
+        <Columns>
+            <DxGridDataColumn FieldName="Id" Caption="ID" Width="80px" />
+            <DxGridDataColumn FieldName="StartTime" Caption="Başlangıç" DisplayFormat="dd.MM.yyyy HH:mm" Width="150px" />
+            <DxGridDataColumn FieldName="FileName" Caption="Dosya Adı" />
+            <DxGridDataColumn FieldName="ProcessedRows" Caption="İşlenen / Toplam" Width="150px">
+                <CellDisplayTemplate>
+                    @{
+                        var session = (TransferSession)context.DataItem;
+                        <span>@session.ProcessedRows / @session.TotalRows</span>
+                    }
+                </CellDisplayTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn FieldName="Status" Caption="Durum" Width="120px">
+                <CellDisplayTemplate>
+                    @{
+                        var status = context.Value.ToString();
+                        var badgeClass = status == "Tamamlandı" ? "bg-success" : (status == "İşleniyor" ? "bg-primary" : "bg-danger");
+                        <span class="badge @badgeClass">@status</span>
+                    }
+                </CellDisplayTemplate>
+            </DxGridDataColumn>
+            <DxGridDataColumn FieldName="UserId" Caption="Kullanıcı">
+                <CellDisplayTemplate>
+                    @* Kullanıcı adını ID'den eşleştirmek için bir metod kullanacağız *@
+                    @GetUserName(context.Value.ToString())
+                </CellDisplayTemplate>
+            </DxGridDataColumn>
+        </Columns>
+
+        @* DETAY SATIRI: Loglar burada listelenir *@
+        <DetailRowTemplate>
+            @{
+                var session = (TransferSession)context.DataItem;
+                <div class="p-3 bg-light border">
+                    <h6 class="fw-bold mb-2">İşlem Detayları (Seans #@session.Id)</h6>
+                    <LogDetailsGrid SessionId="@session.Id" />
+                </div>
+            }
+        </DetailRowTemplate>
+    </DxGrid>
+</div>
+
+@code {
+    private List<TransferSession> Sessions;
+    private Dictionary<string, string> UserCache = new();
+
+
+    private DateTime? StartDate { get; set; } = DateTime.Now.AddDays(-7); // Varsayılan son 1 hafta
+    private DateTime? EndDate { get; set; } = DateTime.Now;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ApplyFilter(); // İlk açılışta filtreli getir
+    }
+
+    private async Task ApplyFilter()
+    {
+        Sessions = await LogService.GetSessionsAsync(StartDate, EndDate);
+    }
+
+    private async Task ClearFilter()
+    {
+        StartDate = null;
+        EndDate = null;
+        await ApplyFilter();
+    }
+
+
+
+    private string GetUserName(string userId)
+    {
+        // Performans için kullanıcı adlarını cache'leyelim
+        if (UserCache.TryGetValue(userId, out var email))
+            return email;
+
+        var user = UserManager.FindByIdAsync(userId).Result;
+        var displayName = user?.Email ?? userId;
+        UserCache[userId] = displayName;
+        return displayName;
+    }
+}

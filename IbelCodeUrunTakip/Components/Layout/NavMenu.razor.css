@@ -1,0 +1,158 @@
+﻿/* Masaüstü için ana kapsayıcıyı ekran boyuna kilitleyelim */
+.nav-flex-column {
+    display: flex;
+    flex-direction: column;
+    height: 100vh; /* Ekranın tüm yüksekliğini kapla */
+    background-color: #2b3e50;
+    color: white;
+}
+
+.nav-logo {
+    padding: 20px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+    .nav-logo img {
+        max-height: 40px;
+    }
+
+/* Orta kısım: Menü öğeleri */
+.nav-menu-items {
+    flex: 1; /* BURASI ÇOK KRİTİK: Kalan tüm boşluğu bu alan doldurur */
+    padding-top: 10px;
+    overflow-y: auto; /* Menü çok uzarsa sadece burası kendi içinde kayar */
+}
+
+/* Alt kısım: Kullanıcı Bilgileri */
+.nav-user-footer {
+    /* flex: 1 sayesinde burası otomatik olarak en dibe itilir */
+    padding: 20px;
+    background-color: rgba(0,0,0,0.2);
+    border-top: 1px solid rgba(255,255,255,0.1);
+}
+
+.user-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+    .user-card i {
+        font-size: 1.8rem;
+        color: #3498db;
+    }
+
+.user-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.welcome {
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+.mail {
+    font-size: 0.85rem;
+    font-weight: bold;
+    word-break: break-all;
+}
+
+.logout-btn {
+    width: 100%;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 8px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: 0.2s;
+}
+
+    .logout-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: white;
+    }
+/* DevExpress Menü bileşeninin ana gövdesi */
+.custom-menu {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+    /* Menü öğelerinin (item) arka planı ve yazısı */
+    .custom-menu .dxbl-menu-item {
+        background-color: transparent !important; /* Beyaz arka planı yok eder */
+        color: white !important; /* Yazıları beyaz yapar */
+        transition: background-color 0.3s;
+    }
+
+    /* Menü üzerindeki yazıların (span) rengini garantiye alalım */
+    .custom-menu .dxbl-menu-item-text,
+    .custom-menu .dxbl-menu-item-text span {
+        color: white !important;
+    }
+
+    /* Menü ikonlarının rengi */
+    .custom-menu .dxbl-menu-item i,
+    .custom-menu .dxbl-menu-item .bi {
+        color: white !important;
+        margin-right: 10px;
+    }
+
+    /* Üzerine gelindiğinde (Hover) hafif bir parlama efekti */
+    .custom-menu .dxbl-menu-item:hover {
+        background-color: rgba(255, 255, 255, 0.1) !important;
+        cursor: pointer;
+    }
+
+    /* Seçili olan (Active) menü öğesi */
+    .custom-menu .dxbl-menu-item.active {
+        background-color: rgba(255, 255, 255, 0.15) !important;
+        border-left: 3px solid #3498db; /* Soluna ince mavi bir çizgi atar */
+    }
+
+
+/* Menü alanındaki tüm DevExpress öğelerine derinlemesine ulaşalım */
+.nav-menu-items ::deep .dxbl-menu {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+/* Her bir menü butonunun arka planını şeffaf yap */
+.nav-menu-items ::deep .dxbl-menu-item {
+    background-color: transparent !important;
+    color: white !important;
+    border: none !important;
+}
+
+/* Menü içindeki metinleri zorla beyaz yap */
+.nav-menu-items ::deep .dxbl-menu-item-text,
+.nav-menu-items ::deep .dxbl-menu-item-text span {
+    color: white !important;
+}
+
+/* İkonları beyaz yap */
+.nav-menu-items ::deep .dxbl-menu-item i,
+.nav-menu-items ::deep .dxbl-menu-item .bi {
+    color: white !important;
+}
+
+/* Hover (üzerine gelince) efektini ekle */
+.nav-menu-items ::deep .dxbl-menu-item:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Sidebar'ın kendi arka planını da garantiye alalım */
+.nav-flex-column {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: #2b3e50 !important; /* Koyu lacivert/mavi */
+    color: white;
+}
